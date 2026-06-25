@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 
 export interface PdfQuestion {
   ocr_text: string;
@@ -30,11 +31,63 @@ function wrapText(doc: jsPDF, text: string, maxWidth: number): string[] {
 }
 
 /**
- * Export questions to PDF.
- * @param questions Array of questions
- * @param filename Output filename
- * @param includeAnswers Whether to include answers/explanations
- * @param title PDF title
+ * Build HTML string for all questions. Uses browser-native CJK font rendering.
+ */
+function buildQuestionsHtml(
+  questions: PdfQuestion[],
+  includeAnswers: boolean,
+  title: string
+): string {
+  const lines: string[] = [];
+  lines.push(`<div style="font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Hiragino Sans GB', sans-serif; font-size: 14px; color: #222; line-height: 1.7; width: 750px; padding: 20px 30px; background: #fff;">`);
+  lines.push(`<h2 style="font-size: 20px; margin: 0 0 4px 0;">${escHtml(title)}</h2>`);
+  lines.push(`<p style="font-size: 12px; color: #888; margin: 0 0 16px 0;">共 ${questions.length} 题 · 导出时间：${new Date().toLocaleString("zh-CN")}</p>`);
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const mathMode = isMathSubject(q.subject_name);
+    const header = `${q.subject_name || ""}${q.chapter_name ? " > " + q.chapter_name : ""}${q.kp_name ? " > " + q.kp_name : ""}`;
+
+    lines.push(`<div style="margin-bottom: 16px; border-bottom: 1px solid #ddd; padding-bottom: 12px;">`);
+    // Header
+    lines.push(`<div style="font-size: 11px; color: #888; margin-bottom: 4px;">【${i + 1}】${escHtml(header)} · ${escHtml(q.question_type)}</div>`);
+    // Question body
+    lines.push(`<div style="font-size: 14px; color: #111; margin-bottom: 6px; white-space: pre-wrap;">${escHtml(q.ocr_text || "(无题干文字)")}</div>`);
+
+    // Answer
+    if (includeAnswers) {
+      lines.push(`<div style="font-size: 13px; color: #2a7d2a; margin-bottom: 4px;">答案：${escHtml(q.correct_answer || "(无)")}</div>`);
+      if (q.explanation) {
+        lines.push(`<div style="font-size: 12px; color: #555; white-space: pre-wrap;">解析：${escHtml(q.explanation)}</div>`);
+      }
+    }
+
+    // Writing space for math subjects
+    if (mathMode) {
+      lines.push(`<div style="margin-top: 8px;">`);
+      for (let s = 0; s < 8; s++) {
+        lines.push(`<div style="border-bottom: 1px solid #e0e0e0; height: 28px;"></div>`);
+      }
+      lines.push(`</div>`);
+    }
+
+    lines.push(`</div>`);
+  }
+
+  lines.push(`</div>`);
+  return lines.join("\n");
+}
+
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Export questions to PDF using html2canvas for proper CJK font rendering.
  */
 export async function exportQuestionsPdf(
   questions: PdfQuestion[],
@@ -42,94 +95,57 @@ export async function exportQuestionsPdf(
   includeAnswers: boolean,
   title: string
 ) {
-  const doc = new jsPDF("p", "mm", "a4");
-  const pageW = 190; // usable width in mm
-  const marginX = 10;
-  let y = 15;
+  const html = buildQuestionsHtml(questions, includeAnswers, title);
 
-  // Title
-  doc.setFontSize(14);
-  doc.text(title, marginX, y);
-  y += 8;
-  doc.setFontSize(9);
-  doc.text(`共 ${questions.length} 题 · 导出时间：${new Date().toLocaleString("zh-CN")}`, marginX, y);
-  y += 10;
+  // Create off-screen container
+  const container = document.createElement("div");
+  container.style.position = "absolute";
+  container.style.left = "-9999px";
+  container.style.top = "0";
+  container.style.width = "810px"; // 750 + 30*2 padding
+  container.innerHTML = html;
+  document.body.appendChild(container);
 
-  doc.setFontSize(10);
+  try {
+    // Render to canvas via html2canvas (browser handles CJK fonts natively)
+    const canvas = await html2canvas(container.firstElementChild as HTMLElement, {
+      scale: 2, // 2x for sharper text
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+    });
 
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
-    const mathMode = isMathSubject(q.subject_name);
+    // A4 at 96dpi ≈ 794 x 1123 px; with scale=2 → 1588 x 2246
+    // We slice the tall canvas into A4 pages
+    const pageWidth = canvas.width;
+    const pageHeight = Math.round(pageWidth * 1.414); // A4 ratio
 
-    // Check if we need a new page (at least 30mm remaining)
-    if (y > 260) {
-      doc.addPage();
-      y = 15;
+    const doc = new jsPDF("p", "mm", "a4");
+    const pdfWidth = 210;
+    const pdfHeight = 297;
+
+    let srcY = 0;
+    let pageNum = 0;
+
+    while (srcY < canvas.height) {
+      if (pageNum > 0) doc.addPage();
+
+      const sliceHeight = Math.min(pageHeight, canvas.height - srcY);
+
+      // Create a slice canvas
+      const sliceCanvas = document.createElement("canvas");
+      sliceCanvas.width = pageWidth;
+      sliceCanvas.height = sliceHeight;
+      const ctx = sliceCanvas.getContext("2d")!;
+      ctx.drawImage(canvas, 0, srcY, pageWidth, sliceHeight, 0, 0, pageWidth, sliceHeight);
+
+      doc.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, 0, pdfWidth, (sliceHeight / pageWidth) * pdfWidth);
+      srcY += pageHeight;
+      pageNum++;
     }
 
-    // Question header
-    const header = `【${i + 1}】${q.subject_name || ""}${q.chapter_name ? " > " + q.chapter_name : ""} · ${q.question_type}`;
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text(header, marginX, y);
-    y += 5;
-
-    // Question body
-    doc.setFontSize(10);
-    doc.setTextColor(0, 0, 0);
-    const lines = wrapText(doc, q.ocr_text || "(无题干文字)", pageW);
-    for (const line of lines) {
-      if (y > 270) { doc.addPage(); y = 15; }
-      doc.text(line, marginX, y);
-      y += 5.5;
-    }
-    y += 2;
-
-    // Answer (if requested)
-    if (includeAnswers) {
-      doc.setFontSize(9);
-      doc.setTextColor(0, 100, 0);
-      const ansLines = wrapText(doc, `答案：${q.correct_answer || "(无)"}`, pageW - 5);
-      for (const line of ansLines) {
-        if (y > 270) { doc.addPage(); y = 15; }
-        doc.text(line, marginX + 3, y);
-        y += 5;
-      }
-      if (q.explanation) {
-        doc.setTextColor(80, 80, 80);
-        const expLines = wrapText(doc, `解析：${q.explanation}`, pageW - 5);
-        for (const line of expLines) {
-          if (y > 270) { doc.addPage(); y = 15; }
-          doc.text(line, marginX + 3, y);
-          y += 5;
-        }
-      }
-      doc.setTextColor(0, 0, 0);
-      y += 2;
-    }
-
-    // Writing space for math subjects
-    if (mathMode) {
-      const spaceLines = 8;
-      const spaceHeight = spaceLines * 5.5;
-      if (y + spaceHeight > 270) {
-        doc.addPage();
-        y = 15;
-      }
-      doc.setDrawColor(200, 200, 200);
-      for (let s = 0; s < spaceLines; s++) {
-        doc.line(marginX, y, marginX + pageW, y);
-        y += 5.5;
-      }
-      y += 1;
-    }
-
-    // Separator between questions
-    y += 2;
-    doc.setDrawColor(180, 180, 180);
-    doc.line(marginX, y, marginX + pageW, y);
-    y += 6;
+    doc.save(filename);
+  } finally {
+    document.body.removeChild(container);
   }
-
-  doc.save(filename);
 }

@@ -13,6 +13,7 @@
     "seed:questions": "node scripts/seed-questions.mjs"
   },
   "dependencies": {
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "katex": "^0.16.45",
     "next": "16.2.4",

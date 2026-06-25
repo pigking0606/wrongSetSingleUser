@@ -38,6 +38,10 @@ export default function DailyQuestionsPage() {
   const [curDate, setCurDate] = useState(today());
   const [subjects, setSubjects] = useState<ChapterNode[]>([]);
   const [subjectId, setSubjectId] = useState<number | null>(null);
+  const [chapters, setChapters] = useState<ChapterNode[]>([]);
+  const [kps, setKps] = useState<ChapterNode[]>([]);
+  const [chapterL2Id, setChapterL2Id] = useState<number | null>(null);
+  const [kpId, setKpId] = useState<number | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(false);
   const [shownAnswers, setShownAnswers] = useState<Set<number>>(new Set());
@@ -48,13 +52,25 @@ export default function DailyQuestionsPage() {
     fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects).catch(() => {});
   }, []);
 
-  const fetchQuestions = useCallback(async (date: string, sid: number | null) => {
+  useEffect(() => {
+    if (!subjectId) { setChapters([]); setKps([]); return; }
+    fetch(`/api/chapters?parent_id=${subjectId}`).then(r => r.json()).then(data => setChapters(data.filter((c: ChapterNode) => c.level === 2)));
+  }, [subjectId]);
+
+  useEffect(() => {
+    if (!chapterL2Id) { setKps([]); return; }
+    fetch(`/api/chapters?parent_id=${chapterL2Id}`).then(r => r.json()).then(data => setKps(data.filter((c: ChapterNode) => c.level === 3)));
+  }, [chapterL2Id]);
+
+  const fetchQuestions = useCallback(async (date: string, sid: number | null, cid: number | null, kid: number | null) => {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("from", date);
     params.set("to", date);
     params.set("pageSize", "200");
     if (sid) params.set("subject_id", String(sid));
+    if (cid) params.set("chapter_l2_id", String(cid));
+    if (kid) params.set("chapter_id", String(kid));
     try {
       const resp = await fetch(`/api/questions?${params.toString()}`);
       const data = await resp.json();
@@ -63,7 +79,7 @@ export default function DailyQuestionsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchQuestions(curDate, subjectId); }, [curDate, subjectId, fetchQuestions]);
+  useEffect(() => { fetchQuestions(curDate, subjectId, chapterL2Id, kpId); }, [curDate, subjectId, chapterL2Id, kpId, fetchQuestions]);
 
   const toggle = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
     const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); setter(next);
@@ -98,9 +114,17 @@ export default function DailyQuestionsPage() {
 
       {/* Subject filter */}
       <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center" }}>
-        <select value={subjectId ?? ""} onChange={e => setSubjectId(e.target.value ? parseInt(e.target.value) : null)}>
+        <select value={subjectId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setSubjectId(v); setChapterL2Id(null); setKpId(null); }}>
           <option value="">全部科目</option>
           {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={chapterL2Id ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setChapterL2Id(v); setKpId(null); }} disabled={!subjectId}>
+          <option value="">全部章节</option>
+          {chapters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={kpId ?? ""} onChange={e => setKpId(e.target.value ? parseInt(e.target.value) : null)} disabled={!chapterL2Id}>
+          <option value="">全部知识点</option>
+          {kps.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
         </select>
         {Object.keys(countBySubject).length > 0 && (
           <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>

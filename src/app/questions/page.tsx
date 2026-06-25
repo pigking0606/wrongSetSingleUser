@@ -37,6 +37,7 @@ export default function QuestionsPage() {
   const [shownAnswers, setShownAnswers] = useState<Set<number>>(new Set());
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
   const [shownSolutions, setShownSolutions] = useState<Set<number>>(new Set());
+  const [pdfCount, setPdfCount] = useState(20);
 
   // Edit mode
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -240,15 +241,21 @@ export default function QuestionsPage() {
 
       {/* PDF Export */}
       {questions.length > 0 && (
-        <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>导出PDF：</span>
+          <input type="number" min={1} max={questions.length} value={pdfCount}
+            onChange={e => { const v = parseInt(e.target.value); if (v >= 1 && v <= questions.length) setPdfCount(v); }}
+            style={{ width: "50px", fontSize: ".75rem", padding: ".2rem .3rem", boxSizing: "border-box" }} title="导出数量" />
+          <span style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>/ {questions.length} 题</span>
           <button className="btn btn-primary" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
+            const slice = questions.slice(0, pdfCount);
             const label = [filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部";
-            exportQuestionsPdf(questions, `错题_${label}.pdf`, true, `错题导出 · ${label}`);
+            exportQuestionsPdf(slice, `错题_${label}.pdf`, true, `错题导出 · ${label} · ${slice.length}题`);
           }}>含答案</button>
           <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
+            const slice = questions.slice(0, pdfCount);
             const label = [filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部";
-            exportQuestionsPdf(questions, `错题_${label}_纯题目.pdf`, false, `错题导出（纯题目） · ${label}`);
+            exportQuestionsPdf(slice, `错题_${label}_纯题目.pdf`, false, `错题导出（纯题目） · ${label} · ${slice.length}题`);
           }}>纯题目</button>
         </div>
       )}
