@@ -94,6 +94,10 @@ export default function UploadPage() {
         setPreviewUrl(URL.createObjectURL(blob));
       }
       setCropping(false);
+      // Clean up crop source so clicking "拍第二页" won't flash the old image
+      if (cropSrc) URL.revokeObjectURL(cropSrc);
+      setCropSrc(null);
+      setOriginalFile(null);
     } catch { setErrorMsg("裁剪失败"); }
   };
 
@@ -226,12 +230,12 @@ export default function UploadPage() {
         <div style={{ display: "flex", gap: ".75rem" }}>
           <button className="btn" style={{ flex: 1 }} onClick={() => {
             if (page1Preview) URL.revokeObjectURL(page1Preview);
-            setPage1Preview(null); setPage1Blob(null); setCropping(true); setCurrentPage(1);
+            setPage1Preview(null); setPage1Blob(null); if (cropSrc) URL.revokeObjectURL(cropSrc); setCropSrc(null); setOriginalFile(null); setCropping(true); setCurrentPage(1);
             setCrop(undefined); setCompletedCrop(null);
             setTimeout(() => cameraInputRef.current?.click(), 0);
           }}>重拍第1页</button>
           <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
-            setCropping(true); setCurrentPage(2); setCrop(undefined); setCompletedCrop(null);
+            if (cropSrc) URL.revokeObjectURL(cropSrc); setCropSrc(null); setOriginalFile(null); setCropping(true); setCurrentPage(2); setCrop(undefined); setCompletedCrop(null);
             setTimeout(() => cameraInputRef.current?.click(), 0);
           }}>拍第二页</button>
         </div>
