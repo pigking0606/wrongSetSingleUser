@@ -15,6 +15,15 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /www/wwwroot/wrongset || exit 1
-            git pull origin main
+            REPO_DIR="/www/wwwroot/wrongset"
+            if [ -d "$REPO_DIR/.git" ]; then
+              echo "==> git pull..."
+              cd "$REPO_DIR"
+              git pull origin main
+            else
+              echo "==> git clone..."
+              git clone https://github.com/pigking0606/wrongSetSingleUser.git "$REPO_DIR"
+              cd "$REPO_DIR"
+            fi
+            echo "==> running deploy script..."
             bash wrong.sh
