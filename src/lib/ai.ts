@@ -247,8 +247,9 @@ export function buildSystemPrompt(subjects: ChapterRow[]) {
 
   const lines: string[] = [];
   for (const s of l1) {
+    const chs = l2.filter(c => c.parent_id === s.id);
     lines.push(`\n【${s.name}】`);
-    for (const ch of l2.filter(c => c.parent_id === s.id)) {
+    for (const ch of chs) {
       const kps = l3.filter(k => k.parent_id === ch.id).map(k => k.name);
       lines.push(`  ${ch.name}：${kps.join("、")}`);
     }
@@ -256,11 +257,24 @@ export function buildSystemPrompt(subjects: ChapterRow[]) {
 
   const chapterTree = lines.join("\n");
 
-  return `你是考研命题专家。已知科目体系如下，classification 必须从中选取：
+  return `你是考研命题专家，擅长将题目精准归类到考研科目体系中。
+
+## 科目体系（必须严格使用以下名称，不得修改、缩写、自创）
 
 ${chapterTree}
 
-输出 JSON（不含 markdown 包裹）：
+## 分类规则 — 必须遵守！
+
+- subject：从上述4个科目（408/数学二/英语二/政治）中选，不得自创
+- chapter：必须从该 subject 下的章节名中选，使用完全相同的中文名称（包括括号、标点符号）
+- knowledgePoint：必须从该 chapter 下的知识点中选，使用完全相同的中文名称
+- 如果题目涉及计算机课程（数据结构、计组、操作系统、网络）→ subject="408"
+- 如果题目是数学公式/计算/证明题 → subject="数学二"，再根据内容判断高数还是线代
+- 如果题目是英语阅读/翻译/完形/写作 → subject="英语二"
+- 如果题目是政治理论/时政/哲学/历史 → subject="政治"
+- 无法确定最细粒度的 knowledgePoint 时，选最接近的一个，禁止留空
+
+输出纯 JSON（不含任何 markdown 包裹，不含解释文字）：
 {"ocrText":"题干","questionType":"single_choice","classification":{"subject":"","chapter":"","knowledgePoint":""},"correctAnswer":"","explanation":"","solutions":[{"name":"","steps":[],"answer":""}],"confidence":0.95}`;
 }
 
@@ -428,7 +442,7 @@ async function realAnalyze(
      「网络拓扑：路由器 R1(eth0: 10.0.0.1/24) --100Mbps-- 交换机 S1(端口1-3) -- 服务器 A(10.0.0.10)、B(10.0.0.11)、C(10.0.0.12)」
      「流程图：开始 → 输入n → 判断n>0？→ [是]输出正数 → 结束；[否]输出负数 → 结束」
    - 图表信息是解题的必要条件，缺失会导致题目无法作答
-2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
+2. classification：必须严格使用 system prompt 中的准确的章节名称（包含括号、标点等全部字符），一字不差。不得缩写（如不可写"毛中特"替代"毛泽东思想和中国特色社会主义理论体系概论"），不得自创名称。按以下顺序判断：①先判科目（408/数学二/英语二/政治）②再判章节 ③最后选最精确的知识点
 3. correctAnswer：只给出该题的正确答案
 4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。
    【数学公式规范】
@@ -455,7 +469,7 @@ async function realAnalyze(
      「网络拓扑：路由器 R1(eth0: 10.0.0.1/24) --100Mbps-- 交换机 S1(端口1-3) -- 服务器 A(10.0.0.10)、B(10.0.0.11)、C(10.0.0.12)」
      「流程图：开始 → 输入n → 判断n>0？→ [是]输出正数 → 结束；[否]输出负数 → 结束」
    - 图表信息是解题的必要条件，缺失会导致题目无法作答
-2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
+2. classification：必须严格使用 system prompt 中的准确的章节名称（包含括号、标点等全部字符），一字不差。不得缩写（如不可写"毛中特"替代"毛泽东思想和中国特色社会主义理论体系概论"），不得自创名称。按以下顺序判断：①先判科目（408/数学二/英语二/政治）②再判章节 ③最后选最精确的知识点
 3. correctAnswer：只给出该题的正确答案
 4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。
    【数学公式规范】

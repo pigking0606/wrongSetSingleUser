@@ -75,9 +75,64 @@ function matchChapters(
   const l2 = allChapters.filter(c => c.level === 2);
   const l3 = allChapters.filter(c => c.level === 3);
 
-  let s = l1.find(c => c.name === cls.subject) || l1.find(c => cls.subject.includes(c.name) || c.name.includes(cls.subject)) || l1[0]!;
-  let ch = l2.find(c => c.parent_id === s.id && c.name === cls.chapter) || l2.find(c => c.parent_id === s.id && c.name.includes(cls.chapter.substring(0, 4))) || l2.filter(c => c.parent_id === s.id)[0]!;
-  let kp = l3.find(c => c.parent_id === ch.id && c.name === cls.knowledgePoint) || l3.find(c => c.parent_id === ch.id && c.name.includes(cls.knowledgePoint.substring(0, 4))) || l3.filter(c => c.parent_id === ch.id)[0]!;
+  // Normalize: remove whitespace, parentheses variations
+  const norm = (s: string) => s.replace(/\s+/g, "").replace(/[（(]/g, "(").replace(/[）)]/g, ")");
 
-  return { subject_id: s.id, subject: s.name, chapter_id: ch.id, chapter: ch.name, knowledge_point_id: kp.id, knowledge_point: kp.name };
+  // Step 1: Match subject — exact first, then fuzzy
+  let s = l1.find(c => c.name === cls.subject)
+    || l1.find(c => norm(c.name) === norm(cls.subject))
+    || l1.find(c => cls.subject.includes(c.name) || c.name.includes(cls.subject));
+
+  // If subject not found, try keyword matching
+  if (!s) {
+    if (cls.subject.includes("408") || cls.subject.includes("计算机") || cls.subject.includes("数据结构") || cls.subject.includes("计组") || cls.subject.includes("操作系统") || cls.subject.includes("网络")) {
+      s = l1.find(c => c.name === "408")!;
+    } else if (cls.subject.includes("数学") || cls.subject.includes("高数") || cls.subject.includes("线代")) {
+      s = l1.find(c => c.name === "数学二")!;
+    } else if (cls.subject.includes("英语")) {
+      s = l1.find(c => c.name === "英语二")!;
+    } else if (cls.subject.includes("政治") || cls.subject.includes("马原") || cls.subject.includes("毛中特") || cls.subject.includes("史纲") || cls.subject.includes("思修") || cls.subject.includes("时政")) {
+      s = l1.find(c => c.name === "政治")!;
+    }
+  }
+
+  // Fallback
+  if (!s) s = l1[0]!;
+
+  // Step 2: Match chapter under subject — exact first, then fuzzy substring overlap
+  let ch = l2.find(c => c.parent_id === s.id && c.name === cls.chapter)
+    || l2.find(c => c.parent_id === s.id && norm(c.name) === norm(cls.chapter));
+
+  if (!ch) {
+    const candidates = l2.filter(c => c.parent_id === s.id);
+    let best = 0;
+    for (const c of candidates) {
+      const overlap = [...cls.chapter].filter(ch0 => c.name.includes(ch0)).length;
+      const score = overlap / Math.max(c.name.length, cls.chapter.length);
+      if (score > best) { best = score; ch = c; }
+    }
+    // Fallback: pick first chapter under subject if no good match
+    if (best < 0.15) ch = l2.filter(c => c.parent_id === s.id)[0]!;
+  }
+
+  if (!ch) ch = l2.filter(c => c.parent_id === s.id)[0]!;
+
+  // Step 3: Match knowledge point under chapter — same fuzzy logic
+  let kp = l3.find(c => c.parent_id === ch!.id && c.name === cls.knowledgePoint)
+    || l3.find(c => c.parent_id === ch!.id && norm(c.name) === norm(cls.knowledgePoint));
+
+  if (!kp) {
+    const candidates = l3.filter(c => c.parent_id === ch!.id);
+    let best = 0;
+    for (const c of candidates) {
+      const overlap = [...cls.knowledgePoint].filter(ch0 => c.name.includes(ch0)).length;
+      const score = overlap / Math.max(c.name.length, cls.knowledgePoint.length);
+      if (score > best) { best = score; kp = c; }
+    }
+    if (best < 0.15) kp = l3.filter(c => c.parent_id === ch!.id)[0]!;
+  }
+
+  if (!kp) kp = l3.filter(c => c.parent_id === ch!.id)[0]!;
+
+  return { subject_id: s!.id, subject: s!.name, chapter_id: ch!.id, chapter: ch!.name, knowledge_point_id: kp!.id, knowledge_point: kp!.name };
 }
