@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* Theme: light / dark / eye-care                                      */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --bg: #fff;
+  --bg-card: #fafafa;
+  --bg-hover: #f5f5f5;
+  --text: #1a1a1a;
+  --text-muted: #888;
+  --border: #e5e5e5;
+  --accent: #1a1a1a;
+  --accent-text: #fff;
+  --green-bg: #f0faf0;
+  --green-text: #2d7a2d;
+  --red-bg: #faf0f0;
+  --red-text: #a33;
+  --yellow-bg: #faf8f0;
+  --yellow-text: #8a6d00;
+  --tag-bg: #f0f0f0;
+  --tag-text: #555;
+  --shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+
+.theme-dark {
+  --bg: #1a1a1a;
+  --bg-card: #242424;
+  --bg-hover: #2e2e2e;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --border: #333;
+  --accent: #e0e0e0;
+  --accent-text: #1a1a1a;
+  --green-bg: #1a2e1a;
+  --green-text: #5cad5c;
+  --red-bg: #2e1a1a;
+  --red-text: #d46666;
+  --yellow-bg: #2e2a1a;
+  --yellow-text: #c4a020;
+  --tag-bg: #2e2e2e;
+  --tag-text: #aaa;
+  --shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+
+.theme-eye {
+  --bg: #f5f0e6;
+  --bg-card: #efe8d8;
+  --bg-hover: #e8e0cc;
+  --text: #3d3226;
+  --text-muted: #8a7e6b;
+  --border: #d5ccb8;
+  --accent: #3d3226;
+  --accent-text: #f5f0e6;
+  --green-bg: #e8efe0;
+  --green-text: #3d5a2d;
+  --red-bg: #efe0e0;
+  --red-text: #7a3d3d;
+  --yellow-bg: #efe8d0;
+  --yellow-text: #6d5a1a;
+  --tag-bg: #e8e0cc;
+  --tag-text: #5a5040;
+  --shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  transition: background .2s, color .2s;
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme toggle                                                        */
+/* ------------------------------------------------------------------ */
+
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+.theme-toggle button {
+  width: 32px; height: 28px;
+  border: none; border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  background: transparent;
+  transition: background .15s;
+}
+.theme-toggle button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.theme-toggle button:not(.active):hover {
+  background: var(--bg-hover);
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared components                                                   */
+/* ------------------------------------------------------------------ */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: .5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: .875rem;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+  background: var(--bg-card);
+  color: var(--text);
+}
+.btn:hover { background: var(--bg-hover); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.btn-primary:hover { opacity: .85; }
+
+.btn-danger {
+  background: var(--red-text);
+  color: #fff;
+  border-color: var(--red-text);
+}
+.btn-danger:hover { opacity: .85; }
+
+.btn-success {
+  background: var(--green-text);
+  color: #fff;
+  border-color: var(--green-text);
+}
+.btn-success:hover { opacity: .85; }
+
+select, input, textarea {
+  -webkit-appearance: auto;
+  appearance: auto;
+
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .4rem .6rem;
+  font-size: .875rem;
+  outline: none;
+  transition: border-color .15s;
+}
+select:focus, input:focus, textarea:focus {
+  border-color: var(--text-muted);
+}
+
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: .75rem;
+  font-weight: 500;
+  background: var(--tag-bg);
+  color: var(--tag-text);
+}
+
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

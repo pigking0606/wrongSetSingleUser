@@ -1,0 +1,541 @@
+export interface AiAnalysisResult {
+  ocrText: string;
+  questionType: "single_choice" | "multiple_choice" | "true_false" | "fill_blank" | "short_answer" | "comprehensive";
+  classification: {
+    subject: string;
+    chapter: string;
+    knowledgePoint: string;
+  };
+  correctAnswer: string;
+  explanation: string;
+  solutions: Array<{
+    name: string;
+    steps: string[];
+    answer: string;
+  }>;
+  confidence: number;
+  error_reason?: string;
+}
+
+export class AiTimeoutError extends Error { name = "AiTimeoutError"; }
+export class AiApiError extends Error { name = "AiApiError"; constructor(msg: string, public status: number) { super(msg); } }
+export class AiParseError extends Error { name = "AiParseError"; constructor(msg: string, public rawText: string) { super(msg); } }
+
+// ---------------------------------------------------------------------------
+// JSON parsing helpers
+// ---------------------------------------------------------------------------
+
+// Auto-wrap bare LaTeX fragments in $...$, even in mixed Chinese+math text.
+// Handles: \frac{}{}, \lim_{}, \int_{}^{}, \int_0^1, \sqrt{}, \to, \infty, etc.
+const LATEX_FRAGMENT = /\\[a-zA-Z]+(?:\{[^}]*\}|\{[^}]*\}\{[^}]*\}|_{[^}]*}|\^\{[^}]*\}|_[a-zA-Z0-9]|\^[a-zA-Z0-9])*/g;
+
+// Match bare superscript/subscript patterns: x^2, a^{n+1}, S_n, x_{1}, e^{i\pi}, 2^{10}
+// Also matches standalone ^{...} and _{...} when AI forgot the base character
+const BARE_EXPONENT = /(?:[a-zA-Z0-9]+)?[\^_](?:\{[^}]+\}|[a-zA-Z0-9]+)/g;
+
+// Same as MathText splitters — consistent two-level approach
+const BLOCK_RE = /(\$\$[\s\S]+?\$\$)/g;
+const INLINE_RE = /(\$[^$]+\$)/g;
+
+export function autoWrapMathDelimiters(text: string): string {
+  if (!text) return text;
+
+  // Step 1: split by display math blocks ($$...$$), preserve them untouched
+  const parts = text.split(BLOCK_RE);
+  return parts.map((part, i) => {
+    if (part.startsWith("$$") && part.endsWith("$$") && i % 2 === 1) return part;
+
+    // Step 2: within non-display-math text, split by inline math ($...$)
+    const inlineParts = part.split(INLINE_RE);
+    return inlineParts.map((ip, j) => {
+      // Inline math block — keep as-is
+      if (ip.startsWith("$") && ip.endsWith("$") && ip.length > 2 && j % 2 === 1) return ip;
+
+      // Non-math segment — wrap bare LaTeX fragments
+      // Pass 1: wrap LaTeX commands (\frac, \lim, etc.)
+      let processed = ip.replace(LATEX_FRAGMENT, (match) => {
+        if (/^\\[bfnrt]$/.test(match)) return match;
+        return `$${match}$`;
+      });
+      // Pass 2: re-split by newly-created $...$ blocks, then wrap bare exponents
+      const subParts = processed.split(INLINE_RE);
+      processed = subParts.map((sp, k) => {
+        if (sp.startsWith("$") && sp.endsWith("$") && sp.length > 2 && k % 2 === 1) return sp;
+        return sp.replace(BARE_EXPONENT, (match) => `$${match}$`);
+      }).join("");
+      return processed;
+    }).join("");
+  }).join("");
+}
+
+// ---------------------------------------------------------------------------
+// AI dedup: remove self-debate/backtracking, keep only final conclusion
+// ---------------------------------------------------------------------------
+
+// Get settings from DB (with env fallback), auto-decrypt encrypted values
+import { queryOne } from "@/lib/db";
+import { decrypt } from "@/lib/crypto-utils";
+function loadSetting(key: string, envFallback = ""): string {
+  try {
+    const row = queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    if (row?.value) return decrypt(row.value);
+  } catch { /* table may not exist yet */ }
+  return process.env[envFallback] || "";
+}
+
+// Pick API endpoint based on model or DB setting
+function getApiUrl(model: string, settingKey: string): string {
+  const custom = loadSetting(settingKey);
+  if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
+  if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
+  return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+}
+function getVisionUrl(): string {
+  const custom = loadSetting("vision_url");
+  if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
+  return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+}
+
+const DEDUP_PROMPT = `你是一个文本精简助手。输入一段AI生成的文本（可能是题目解析或答案），其中AI可能反复推翻自己的说法、写出多个版本的解答。
+
+你的任务：删掉所有"自我推翻"的内容（如"等等，不对，应该重新考虑..."之类），只保留最终正确的解答。
+
+规则：
+1. 删除所有推翻前面内容的部分，只保留最后确定的结论
+2. 不改变最终结论的任何内容（数学公式、文字、步骤全部保留）
+3. 如果没有任何推翻，原样返回
+4. 绝不新增任何内容
+5. 直接返回精简后的文本，不要解释`;
+
+function getTextApiKey(): string {
+  return loadSetting("text_key", "DEEPSEEK_API_KEY") || loadSetting("vision_key", "DASHSCOPE_API_KEY") || "";
+}
+
+async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Promise<Record<string, string>> {
+  const apiKey = getTextApiKey();
+  if (!apiKey) return texts;
+  const entries = Object.entries(texts).filter(([, v]) => v && v.length > 30);
+  if (entries.length === 0) return texts;
+
+  try {
+    const dedupModel = loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+    const resp = await fetch(
+      getApiUrl(dedupModel, "text_url"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: dedupModel,
+          max_tokens: 4096,
+          temperature: 0,
+          messages: [
+            { role: "system", content: DEDUP_PROMPT },
+            { role: "user", content: `输入文本（可能需要精简）：\n\n${entries.map(([k, v]) => `【${k}】\n${v}`).join("\n\n")}\n\n请输出精简后的文本（保持【字段名】标记，直接输出结果）：` },
+          ],
+        }),
+        signal: AbortSignal.timeout(30000),
+      }
+    );
+    if (!resp.ok) return texts;
+    const data = await resp.json();
+    const raw: string = data.choices?.[0]?.message?.content || "";
+    // Parse the response: extract text between 【field】 markers
+    const result = { ...texts };
+    for (const key of Object.keys(texts)) {
+      const pattern = new RegExp(`【${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}】\\s*([\\s\\S]*?)(?=【|$)`, 'i');
+      const m = raw.match(pattern);
+      if (m?.[1]?.trim()) result[key] = m[1].trim();
+    }
+    return result;
+  } catch {
+    return texts;
+  }
+}
+
+async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<void> {
+  const fields: Record<string, string> = {};
+  if (result.explanation && result.explanation.length > 30) fields["explanation"] = result.explanation;
+  if (result.correctAnswer && result.correctAnswer.length > 30) fields["correctAnswer"] = result.correctAnswer;
+  if (result.ocrText && result.ocrText.length > 30) fields["ocrText"] = result.ocrText;
+  const fixed = await dedupWithAI(fields, apiKey);
+  if (fixed["explanation"]) result.explanation = fixed["explanation"];
+  if (fixed["correctAnswer"]) result.correctAnswer = fixed["correctAnswer"];
+  if (fixed["ocrText"]) result.ocrText = fixed["ocrText"];
+}
+
+// ---------------------------------------------------------------------------
+// Layer 3: Post-process — fix common AI LaTeX mistakes that survived this far
+// ---------------------------------------------------------------------------
+
+export function sanitizeLatex(text: string): string {
+  if (!text) return text;
+
+  // 1. Strip $ inside ^{$...$} and _{$...$} — AI wrongly nests math blocks
+  text = text.replace(/\^\{(\s*)\$([^$]+)\$(\s*)\}/g, "^{$1$2$3}");
+  text = text.replace(/_\{(\s*)\$([^$]+)\$(\s*)\}/g, "_{$1$2$3}");
+
+  // 1b. Remove extra $ around matrix environments (AI sometimes adds $\begin{vmatrix}...\end{vmatrix}$)
+  text = text.replace(/\$(\\begin\{[^}]+\})/g, "$1");
+  text = text.replace(/(\\end\{[^}]+\})\$/g, "$1");
+
+  // 2. Merge adjacent inline blocks: $a$$b$ → $ab$
+  text = text.replace(/\$(\s*)\$/g, (_, space) => space || " ");
+
+  // 3. Merge single-command blocks into following text:
+  //    $\ln$ y → $\ln y$  |  $\cdot$ ( → $\cdot ($
+  text = text.replace(/\$(\\[a-zA-Z]+)\$\s+([a-zA-Z0-9(])/g, (_, cmd, next) => `$${cmd} ${next}$`);
+  //    x =$ $\frac → x = $\frac  (merge text before $cmd$ into block)
+  text = text.replace(/([a-zA-Z0-9)])\s+\$(\\[a-zA-Z]+)\$/g, (_, prev, cmd) => `$${prev} ${cmd}$`);
+
+  // 4. Remove empty math blocks
+  text = text.replace(/\$\$/g, "");
+
+  // 5. Fix leading/trailing space inside $...$ blocks
+  text = text.replace(/\$\s+/g, "$");
+  text = text.replace(/\s+\$/g, "$");
+
+  return text;
+}
+
+function fixLatexEscapes(raw: string): string {
+  // Replace single \ followed by 2+ letters with \\ (LaTeX commands like \frac, \lim).
+  // Single-letter \ escapes (\n, \t, \r, \b, \f) are JSON escapes — leave them alone.
+  return raw.replace(/(?<!\\)\\([a-zA-Z]{2,})/g, "\\\\$1");
+}
+
+function parseAiJson(rawText: string): AiAnalysisResult {
+  let jsonStr = rawText.trim();
+
+  // Strip leading ``` fences (```json, ```, etc.)
+  jsonStr = jsonStr.replace(/^```[\s\S]*?\n/, "").replace(/\n```\s*$/, "");
+
+  // Fix LaTeX backslashes that AI forgot to double-escape
+  jsonStr = fixLatexEscapes(jsonStr);
+
+  // Try direct parse
+  try { return JSON.parse(jsonStr); } catch { /* fall through */ }
+
+  // Extract between first { and last }
+  const start = jsonStr.indexOf("{");
+  const end = jsonStr.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && start < end) {
+    try { return JSON.parse(jsonStr.slice(start, end + 1)); } catch { /* fall through */ }
+  }
+
+  // Last resort: re-fix escapes on the extracted slice and retry
+  if (start !== -1 && end !== -1) {
+    try {
+      return JSON.parse(fixLatexEscapes(jsonStr.slice(start, end + 1)));
+    } catch {
+      throw new AiParseError("Failed to parse AI response as JSON", rawText);
+    }
+  }
+
+  throw new AiParseError("Failed to parse AI response as JSON", rawText);
+}
+
+// ---------------------------------------------------------------------------
+// Prompt builder — reads chapter tree from DB to give AI the complete hierarchy
+// ---------------------------------------------------------------------------
+
+interface ChapterRow { id: number; name: string; level: number; parent_id: number | null; }
+
+export function buildSystemPrompt(subjects: ChapterRow[]) {
+  const l1 = subjects.filter(c => c.level === 1);
+  const l2 = subjects.filter(c => c.level === 2);
+  const l3 = subjects.filter(c => c.level === 3);
+
+  const lines: string[] = [];
+  for (const s of l1) {
+    lines.push(`\n【${s.name}】`);
+    for (const ch of l2.filter(c => c.parent_id === s.id)) {
+      const kps = l3.filter(k => k.parent_id === ch.id).map(k => k.name);
+      lines.push(`  ${ch.name}：${kps.join("、")}`);
+    }
+  }
+
+  const chapterTree = lines.join("\n");
+
+  return `你是考研命题专家。已知科目体系如下，classification 必须从中选取：
+
+${chapterTree}
+
+输出 JSON（不含 markdown 包裹）：
+{"ocrText":"题干","questionType":"single_choice","classification":{"subject":"","chapter":"","knowledgePoint":""},"correctAnswer":"","explanation":"","solutions":[{"name":"","steps":[],"answer":""}],"confidence":0.95}`;
+}
+
+// ---------------------------------------------------------------------------
+// Layer 2: AI LaTeX fixer — second AI pass to repair formatting mistakes
+// ---------------------------------------------------------------------------
+
+const LATEX_FIXER_PROMPT = `你是 LaTeX 格式化专家。你会收到一个 JSON，包含多个需要修复的文本字段。
+你的唯一任务：修复每个字段中所有数学公式的 LaTeX 格式错误。
+
+严格规则：
+1. 每个完整数学表达式必须包裹在一个 \$...\$ 中。禁止拆成 \$\ln\$ \$y\$ 这种碎片，正确写法是 \$\ln y\$
+2. \^{} 和 \_{} 内部绝对不能出现 \$ 符号。x^{\$\\frac{1}{2}\$} 是错误的，正确是 x^{\\frac{1}{2}}
+3. \\left 和 \\right 必须成对出现在同一个 \$...\$ 内，禁止拆开
+4. \$ 必须成对出现，有开就有闭
+5. 所有 LaTeX 命令（\\frac \\lim \\int \\sum \\sqrt \\ln \\cdot \\left \\right \\to \\infty \\sim 等）必须在 \$...\$ 内部，禁止 \$\ln\$ 这种单独命令块
+6. 只修复 LaTeX 格式，不改变题目含义、文字内容、公式内容
+
+输出：直接返回修复后的 JSON，字段结构与输入完全一致，不要添加任何解释。`;
+
+export async function fixLatexWithAI(
+  texts: Record<string, string>,
+  _apiKey: string
+): Promise<Record<string, string>> {
+  const apiKey = getTextApiKey();
+  if (!apiKey) return texts;
+
+  const entries = Object.entries(texts);
+  const totalLen = entries.reduce((s, [, v]) => s + (v || "").length, 0);
+  if (totalLen < 20) return texts;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const ltxModel = loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+    const resp = await fetch(
+      getApiUrl(ltxModel, "text_url"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: ltxModel,
+          max_tokens: 8192,
+          temperature: 0,
+          messages: [
+            { role: "system", content: LATEX_FIXER_PROMPT },
+            { role: "user", content: `请修复以下 JSON 中每个字段的 LaTeX 格式，返回相同结构的 JSON：\n\n${JSON.stringify(texts, null, 2)}` },
+          ],
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!resp.ok) return texts;
+    const data = await resp.json();
+    const raw: string = data.choices?.[0]?.message?.content || "";
+    try {
+      const fixed = JSON.parse(raw);
+      const result: Record<string, string> = {};
+      for (const key of Object.keys(texts)) {
+        result[key] = typeof fixed[key] === "string" ? fixed[key] : texts[key];
+      }
+      return result;
+    } catch {
+      return texts;
+    }
+  } catch {
+    return texts;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function applyLatexFixer(result: AiAnalysisResult, apiKey: string): Promise<void> {
+  // Collect all text fields into a flat map
+  const fields: Record<string, string> = {};
+  if (result.ocrText) fields["ocrText"] = result.ocrText;
+  if (result.correctAnswer) fields["correctAnswer"] = result.correctAnswer;
+  if (result.explanation) fields["explanation"] = result.explanation;
+  for (let i = 0; i < result.solutions.length; i++) {
+    const sol = result.solutions[i];
+    if (sol.name) fields[`sol_${i}_name`] = sol.name;
+    if (sol.answer) fields[`sol_${i}_answer`] = sol.answer;
+    for (let j = 0; j < sol.steps.length; j++) {
+      if (sol.steps[j]) fields[`sol_${i}_step_${j}`] = sol.steps[j];
+    }
+  }
+
+  // Single API call fixes all fields
+  const fixed = await fixLatexWithAI(fields, apiKey);
+
+  // Write back
+  if (fixed["ocrText"]) result.ocrText = fixed["ocrText"];
+  if (fixed["correctAnswer"]) result.correctAnswer = fixed["correctAnswer"];
+  if (fixed["explanation"]) result.explanation = fixed["explanation"];
+  for (let i = 0; i < result.solutions.length; i++) {
+    if (fixed[`sol_${i}_name`]) result.solutions[i].name = fixed[`sol_${i}_name`];
+    if (fixed[`sol_${i}_answer`]) result.solutions[i].answer = fixed[`sol_${i}_answer`];
+    for (let j = 0; j < result.solutions[i].steps.length; j++) {
+      if (fixed[`sol_${i}_step_${j}`]) result.solutions[i].steps[j] = fixed[`sol_${i}_step_${j}`];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Real AI mode (千问 Qwen-VL / DashScope)
+// ---------------------------------------------------------------------------
+
+async function realAnalyze(
+  imageBase64: string,
+  mimeType: string,
+  chapterTree: ChapterRow[],
+  userAnswer?: string
+): Promise<AiAnalysisResult> {
+  const systemPrompt = buildSystemPrompt(chapterTree);
+  const apiKey = loadSetting("vision_key", "DASHSCOPE_API_KEY");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+
+  try {
+    const resp = await fetch(
+      getVisionUrl(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey!}`,
+        },
+        body: JSON.stringify({
+          model: loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
+          max_tokens: 8192,
+          response_format: { type: "json_object" },
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${mimeType};base64,${imageBase64}`,
+                  },
+                },
+                {
+                  type: "text",
+                  text: userAnswer
+                    ? `请分析这道错题。我的答案是「${userAnswer}」。
+
+严格要求：
+1. ocrText：完整逐字识别题目，必须去掉题号前缀（如'32.'、'【2021统考真题】'），只保留印刷体题干正文。忽略图片中的手写笔迹（手写答案/演算/批注一律不识别到ocrText中）。
+   【行列式/矩阵识别】图片中的多行行列式或矩阵必须识别为一个整体LaTeX表达式，禁止拆成多行。
+   - 行列式：$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$
+   - 矩阵：$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$ 或 $\begin{bmatrix} a & b \\ c & d \end{bmatrix}$
+   - 用 & 分隔列，用 \\\\ 分隔行
+2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
+3. correctAnswer：只给出该题的正确答案
+4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。
+   【数学公式规范】
+   - 所有数学符号和公式必须完整包裹在一个 $...$ 中，禁止写成 $a = $b 形式（必须一个 $...$ 包裹完整公式），也禁止 x^{$...$}（$ 不能嵌套在 ^{} 内），禁止 $_{x=1}$（下标不能孤悬）
+   - 所有上标下标必须用花括号：x^{2} 而非 x^2，x_{1} 而非 x_1
+   - 分数必须用 \\\\frac{}{} ，积分用 \\\\int，极限用 \\\\lim
+   - 每个 $...$ 必须成对出现，有开必须有闭
+5. solutions：至少2种解法，每种解法含步骤列表和答案。解法步骤中数学用 LaTeX（同上述规范）
+6. 【关键】JSON 内所有 LaTeX 反斜杠写成双反斜杠 \\\\，例如：
+   - 正确：$\\\\frac{1}{2}$ $\\\\lim_{x \\\\to 0}$ $\\\\int_0^1$
+   - 错误：$\\frac{1}{2}$（缺少双反斜杠会破坏 JSON）`
+                    : `请分析这道题目。
+
+严格要求：
+1. ocrText：完整逐字识别题目文字，必须去掉题号前缀（如'32.'、'【2021统考真题】'），只保留印刷体题干正文。忽略图片中的手写笔迹（手写答案/演算/批注一律不识别到ocrText中）。选择题选项必须每行一个，用 \\n 分隔：\\nA. xxx\\nB. xxx\\nC. xxx\\nD. xxx。
+   【行列式/矩阵识别】图片中的多行行列式或矩阵必须识别为一个整体LaTeX表达式，禁止拆成多行。
+   - 行列式：$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$
+   - 矩阵：$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$ 或 $\begin{bmatrix} a & b \\ c & d \end{bmatrix}$
+   - 用 & 分隔列，用 \\\\ 分隔行
+2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
+3. correctAnswer：只给出该题的正确答案
+4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。
+   【数学公式规范】
+   - 所有数学符号和公式必须完整包裹在一个 $...$ 中，禁止写成 $a = $b 形式（必须一个 $...$ 包裹完整公式），也禁止 x^{$...$}（$ 不能嵌套在 ^{} 内），禁止 $_{x=1}$（下标不能孤悬）
+   - 所有上标下标必须用花括号：x^{2} 而非 x^2，x_{1} 而非 x_1
+   - 分数必须用 \\\\frac{}{} ，积分用 \\\\int，极限用 \\\\lim
+   - 每个 $...$ 必须成对出现，有开必须有闭
+5. solutions：至少2种不同解法，每种含步骤列表和最终答案。步骤中的数学公式用 LaTeX（同上述规范）
+6. 【关键】JSON 内所有 LaTeX 反斜杠必须写成双反斜杠 \\\\。例如：
+   正确：$\\\\frac{1}{2}$、$\\\\lim_{x \\\\to 0}$、$\\\\int_0^1 x^2 dx$、$\\\\sum_{i=1}^n$
+   错误：$\\frac{1}{2}$ ← 单反斜杠 = 格式错误
+   矩阵：$$\\\\begin{pmatrix} a & b \\\\\\\\ c & d \\\\end{pmatrix}$$`,
+                },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new AiApiError(`AI API error ${resp.status}: ${errText}`, resp.status);
+    }
+
+    const data = await resp.json();
+    // qwen3.6-flash returns reasoning_content separately, but just in case
+    const msg = data.choices?.[0]?.message || {};
+    const rawText: string = msg.content || "";
+    // If AI put reasoning inline, extract just the JSON part
+    const cleanText = rawText.includes("{") ? rawText.slice(rawText.indexOf("{")) : rawText;
+    const parsed = parseAiJson(cleanText);
+
+    // Fix literal \n (backslash-n text) before LaTeX processing
+    parsed.ocrText = parsed.ocrText.replace(/\\n/g, "\n").replace(/\\t/g, " ");
+
+    // ---- Layer 1+3: auto-wrap bare LaTeX, then sanitize ----
+    parsed.ocrText = sanitizeLatex(autoWrapMathDelimiters(parsed.ocrText));
+    parsed.correctAnswer = sanitizeLatex(autoWrapMathDelimiters(parsed.correctAnswer));
+    parsed.explanation = sanitizeLatex(autoWrapMathDelimiters(parsed.explanation));
+    if (parsed.solutions) for (const sol of parsed.solutions) {
+      sol.name = sanitizeLatex(autoWrapMathDelimiters(sol.name));
+      if (sol.steps) sol.steps = sol.steps.map(s => sanitizeLatex(autoWrapMathDelimiters(s)));
+      sol.answer = sanitizeLatex(autoWrapMathDelimiters(sol.answer));
+    }
+
+    // ---- Layer 2: second AI pass to fix remaining LaTeX mistakes ----
+    await applyLatexFixer(parsed, apiKey!);
+
+    // ---- Final sanitize after AI fixer ----
+    parsed.ocrText = sanitizeLatex(parsed.ocrText);
+    parsed.correctAnswer = sanitizeLatex(parsed.correctAnswer);
+    parsed.explanation = sanitizeLatex(parsed.explanation);
+    if (parsed.solutions) for (const sol of parsed.solutions) {
+      sol.name = sanitizeLatex(sol.name);
+      if (sol.steps) sol.steps = sol.steps.map(sanitizeLatex);
+      sol.answer = sanitizeLatex(sol.answer);
+    }
+
+    // ---- AI dedup: remove self-debate before formatting ----
+    await dedupResult(parsed, apiKey!);
+
+    // Strip question numbers from OCR text (e.g. "32. ", "【2021统考真题】")
+    if (parsed.ocrText) {
+      parsed.ocrText = parsed.ocrText
+        .replace(/^\d+\s*[\.\、\s]\s*/, "")        // "32. " or "32、"
+        .replace(/^【[^】]*】\s*/, "")               // "【2021统考真题】"
+        .replace(/^\[[^\]]*\]\s*/, "")              // "[2021统考真题]"
+        .trim();
+    }
+
+    return parsed;
+  } catch (err) {
+    if (err instanceof AiApiError || err instanceof AiParseError) throw err;
+    if ((err as Error).name === "AbortError") throw new AiTimeoutError("AI analysis timed out");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function analyzeWrongAnswerImage(
+  imageBase64: string,
+  mimeType: string,
+  chapterTree: ChapterRow[],
+  userAnswer?: string
+): Promise<AiAnalysisResult> {
+  if (!loadSetting("vision_key", "DASHSCOPE_API_KEY") && !loadSetting("text_key", "DEEPSEEK_API_KEY")) {
+    throw new AiApiError("API key 未配置，请在设置页面填写", 500);
+  }
+  return realAnalyze(imageBase64, mimeType, chapterTree, userAnswer);
+}

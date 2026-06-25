@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>错题复习 - AI考研错题管理系统</title>
+<style>
+/* === Theme Variables (eye-care) === */
+:root {
+  --bg: #f5f0e6; --bg-card: #efe8d8; --bg-hover: #e8e0cc;
+  --text: #3d3226; --text-muted: #8a7e6b; --border: #d5ccb8;
+  --accent: #3d3226; --accent-text: #f5f0e6;
+  --green-bg: #e8efe0; --green-text: #3d5a2d;
+  --red-bg: #efe0e0; --red-text: #7a3d3d;
+  --yellow-bg: #efe8d0; --yellow-text: #6d5a1a;
+  --tag-bg: #e8e0cc; --tag-text: #5a5040;
+  --shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "PingFang SC","Microsoft YaHei",sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+/* === Components === */
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; box-shadow: var(--shadow); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+  padding: .45rem .9rem; border: 1px solid var(--border); border-radius: 8px;
+  font-size: .85rem; cursor: pointer; background: var(--bg-card); color: var(--text); }
+.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.tag { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px;
+  font-size: .75rem; font-weight: 500; background: var(--tag-bg); color: var(--tag-text); }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
+  font-size: .7rem; font-weight: 600; letter-spacing: .02em; }
+select, input { background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: .4rem .6rem; font-size: .85rem; outline: none; }
+
+/* === Layout === */
+.container { max-width: 700px; margin: 0 auto; padding: 1.5rem; }
+.header { display: flex; align-items: center; justify-content: space-between;
+  padding: .75rem 1.5rem; background: var(--bg-card); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10; }
+.header .logo { font-weight: 600; font-size: .9rem; }
+.section { margin-bottom: 2rem; }
+.section-title { font-size: 1.2rem; font-weight: 700; margin-bottom: .75rem; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; }
+.stat { text-align: center; }
+.stat .num { font-size: 1.4rem; font-weight: 700; }
+.stat .label { font-size: .75rem; color: var(--text-muted); }
+
+/* Upload mock */
+.upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; }
+.upload-zone .icon { font-size: 2.5rem; margin-bottom: .5rem; }
+.crop-area { background: #ddd; border-radius: 8px; height: 200px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; margin: .75rem 0; overflow: hidden; }
+.crop-area img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.crop-box { position: absolute; border: 2px dashed rgba(255,255,255,.8);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.3); }
+
+/* Review mock */
+.review-card { display: flex; flex-direction: column; gap: .75rem; }
+.answer-row { display: flex; gap: .75rem; }
+.answer-btn { flex: 1; padding: .6rem; font-size: .9rem; font-weight: 600; }
+.answer-btn.wrong { background: var(--red-bg); color: var(--red-text); border-color: var(--red-text); }
+.answer-btn.correct { background: var(--green-bg); color: var(--green-text); border-color: var(--green-text); }
+
+/* Hero section */
+.hero { text-align: center; padding: 2rem 0; }
+.hero h1 { font-size: 1.8rem; margin-bottom: .3rem; }
+.hero .subtitle { color: var(--text-muted); }
+
+/* Steps */
+.steps { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; margin: 1rem 0; }
+.steps span { background: var(--accent); color: var(--accent-text); padding: .35rem .85rem; border-radius: 20px; font-size: .8rem; }
+.steps .arrow { background: none; color: var(--text-muted); padding: .35rem .2rem; }
+
+/* Footer */
+.footer { text-align: center; padding: 1.5rem 0; font-size: .8rem; color: var(--text-muted); }
+
+/* Mobile */
+@media (max-width: 500px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } .grid-2 { grid-template-columns: 1fr; } }
+
+/* KaTeX simulation */
+.math { font-family: "KaTeX_Main","Times New Roman",serif; font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <span class="logo">错题复习</span>
+  <div style="display:flex;gap:2px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:3px">
+    <button style="width:32px;height:28px;border:none;border-radius:6px;cursor:pointer;font-size:14px;background:var(--accent);color:var(--accent-text)">☀</button>
+    <button style="width:32px;height:28px;border:none;border-radius:6px;cursor:pointer;font-size:14px;background:transparent">◉</button>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- Hero -->
+<div class="hero">
+  <h1>📚 错题复习</h1>
+  <p class="subtitle">拍照上传错题，AI 自动识别分类，艾宾浩斯自适应复习</p>
+  <div class="steps">
+    <span>📷 拍照</span><span class="arrow">→</span>
+    <span>✂️ 裁剪</span><span class="arrow">→</span>
+    <span>🤖 AI分析</span><span class="arrow">→</span>
+    <span>📂 入库</span><span class="arrow">→</span>
+    <span>🔄 复习</span>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="grid-4">
+    <div class="stat"><div class="num">4</div><div class="label">科目</div></div>
+    <div class="stat"><div class="num">82</div><div class="label">知识点</div></div>
+    <div class="stat"><div class="num">126</div><div class="label">题目</div></div>
+    <div class="stat"><div class="num">358</div><div class="label">复习记录</div></div>
+  </div>
+</div>
+
+<!-- Navigation Cards -->
+<div class="grid-4" style="margin-bottom:1.5rem">
+  <a href="#" class="card" style="text-decoration:none;color:inherit;text-align:center">
+    <div style="font-size:1.5rem">📷</div>
+    <div style="font-weight:600;font-size:.85rem;margin-top:.25rem">上传错题</div>
+    <div style="font-size:.7rem;color:var(--text-muted)">拍照 / 裁剪 / AI分析</div>
+  </a>
+  <a href="#" class="card" style="text-decoration:none;color:inherit;text-align:center">
+    <div style="font-size:1.5rem">🔄</div>
+    <div style="font-weight:600;font-size:.85rem;margin-top:.25rem">每日复习</div>
+    <div style="font-size:.7rem;color:var(--text-muted)">艾宾浩斯间隔复习</div>
+  </a>
+  <a href="#" class="card" style="text-decoration:none;color:inherit;text-align:center">
+    <div style="font-size:1.5rem">📊</div>
+    <div style="font-weight:600;font-size:.85rem;margin-top:.25rem">题库浏览</div>
+    <div style="font-size:.7rem;color:var(--text-muted)">筛选 / 编辑 / 重解析</div>
+  </a>
+  <a href="#" class="card" style="text-decoration:none;color:inherit;text-align:center">
+    <div style="font-size:1.5rem">📂</div>
+    <div style="font-weight:600;font-size:.85rem;margin-top:.25rem">分类管理</div>
+    <div style="font-size:.7rem;color:var(--text-muted)">科目 / 章节 / 知识点</div>
+  </a>
+</div>
+
+<!-- Upload Page Mock -->
+<div class="section">
+  <div class="section-title">📷 上传错题</div>
+  <div class="card">
+    <div style="display:flex;gap:.75rem;margin-bottom:1rem">
+      <button class="btn btn-primary" style="flex:1">📷 拍照</button>
+      <button class="btn" style="flex:1">🖼 选择图片</button>
+    </div>
+    <div class="upload-zone">
+      <div class="icon">📷</div>
+      <div style="font-size:.875rem">拖拽图片到这里</div>
+      <div style="font-size:.75rem;margin-top:.25rem;color:var(--text-muted)">或点击选择 (PNG / JPG, 最大 10MB)</div>
+    </div>
+    <div style="margin-top:.75rem;font-size:.85rem;color:var(--text-muted);text-align:center">
+      上传后自动裁剪 → 预览确认 → AI后台分析 → 自动入库
+    </div>
+  </div>
+</div>
+
+<!-- Question List Mock -->
+<div class="section">
+  <div class="section-title">📊 题库浏览</div>
+
+  <!-- Filters -->
+  <div style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+    <select><option>全部科目</option><option>408</option><option>数学二</option></select>
+    <select><option>全部章节</option></select>
+    <select><option>全部知识点</option></select>
+  </div>
+
+  <!-- Question Card 1 -->
+  <div class="card" style="margin-bottom:.75rem">
+    <div style="display:flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap;margin-bottom:.75rem">
+      <span class="tag">408</span><span>›</span><span>数据结构</span><span>›</span><span>线性表</span>
+      <span class="badge" style="margin-left:.5rem">single_choice</span>
+      <span style="margin-left:auto;font-size:.7rem">2026-06-08</span>
+    </div>
+    <div style="font-size:.9rem;line-height:1.6;margin-bottom:.75rem">
+      设有一个栈，元素进栈的次序为 A, B, C, D, E，下列<span class="math">C</span>是不可能的出栈序列。
+      <br><br>
+      A. A, B, C, D, E<br>
+      B. B, C, D, E, A<br>
+      C. E, A, B, C, D<br>
+      D. E, D, C, B, A
+    </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn" style="font-size:.8rem">显示答案</button>
+      <button class="btn" style="font-size:.8rem">显示解析</button>
+      <button class="btn" style="font-size:.8rem">显示解法(2)</button>
+      <button class="btn" style="font-size:.8rem">显示图片</button>
+      <button class="btn" style="font-size:.8rem;color:var(--text-muted)">重解析全部</button>
+      <button class="btn" style="font-size:.8rem">重解析答案</button>
+      <button class="btn" style="font-size:.8rem">编辑</button>
+      <button class="btn" style="font-size:.8rem;color:var(--red-text);margin-left:auto">删除</button>
+    </div>
+  </div>
+
+  <!-- Question Card 2 (with math) -->
+  <div class="card" style="margin-bottom:.75rem">
+    <div style="display:flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--text-muted);flex-wrap:wrap;margin-bottom:.75rem">
+      <span class="tag">数学二</span><span>›</span><span>高等数学</span><span>›</span><span>极限与连续</span>
+      <span class="badge" style="margin-left:.5rem">fill_blank</span>
+      <span style="margin-left:auto;font-size:.7rem">2026-06-07</span>
+    </div>
+    <div style="font-size:.9rem;line-height:1.6;margin-bottom:.75rem">
+      <span class="math">lim<sub>x→0</sub></span> <span class="math">(1+3x)<sup>2/sin x</sup></span> = <span class="math">e<sup>6</sup></span>
+    </div>
+    <div style="padding:.5rem .75rem;border-radius:6px;background:var(--yellow-bg);color:var(--yellow-text);font-size:.8rem;margin-bottom:.75rem">
+      你的答案：<span class="math">e<sup>3</sup></span>
+    </div>
+    <div style="padding:.5rem .75rem;border-radius:6px;background:var(--green-bg);color:var(--green-text);font-size:.85rem;margin-bottom:.75rem">
+      正确答案：<span class="math">e<sup>6</sup></span>
+      <span style="margin-left:.5rem;font-size:.75rem;color:var(--red-text)">(回答错误)</span>
+    </div>
+    <div style="padding:.75rem;border-radius:6px;background:var(--bg-hover);font-size:.85rem;line-height:1.6">
+      <strong>解析：</strong>利用重要极限 <span class="math">lim<sub>x→0</sub>(1+x)<sup>1/x</sup>=e</span><br>
+      原式 = <span class="math">lim<sub>x→0</sub>[(1+3x)<sup>1/3x</sup>]<sup>6x/sin x</sup>=e<sup>6</sup></span>
+    </div>
+  </div>
+</div>
+
+<!-- Review Page Mock -->
+<div class="section">
+  <div class="section-title">🔄 每日复习</div>
+
+  <div style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+    <select style="flex:1"><option>全部科目</option></select>
+    <select style="flex:1"><option>全部章节</option></select>
+    <select style="flex:1"><option>全部知识点</option></select>
+    <select style="width:80px"><option>10</option><option>20</option></select>
+  </div>
+
+  <div class="card review-card">
+    <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:.25rem">
+      <span class="tag">数学二</span> › 高等数学 › 极限与连续
+      <span style="margin-left:.5rem">复习次数：2</span>
+    </div>
+    <div style="font-size:1.05rem;line-height:1.7">
+      求极限 <span class="math">lim<sub>x→0</sub>(cos x)<sup>1/x²</sup></span>
+    </div>
+    <div style="font-size:.85rem;color:var(--text-muted)">
+      A. 1 &nbsp;&nbsp; B. <span class="math">e<sup>-1/2</sup></span> &nbsp;&nbsp; C. <span class="math">e<sup>-1</sup></span> &nbsp;&nbsp; D. <span class="math">e<sup>1/2</sup></span>
+    </div>
+    <div class="answer-row">
+      <button class="btn answer-btn wrong">✗ 错了</button>
+      <button class="btn answer-btn correct">✓ 对了</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Pipeline -->
+<div class="section">
+  <div class="section-title">🤖 AI 分析管道</div>
+  <div class="card">
+    <div style="font-family:monospace;font-size:.8rem;text-align:center;line-height:2.2">
+      📷 图片上传<br>
+      ↓<br>
+      <strong>qwen-vl-plus</strong> 多模态视觉识别<br>
+      ├─ OCR 文字提取<br>
+      ├─ 82知识点自动分类<br>
+      └─ 多解法 + 解析生成<br>
+      ↓<br>
+      <strong>deepseek-v4-pro</strong> 去重精简<br>
+      ↓<br>
+      <strong>3层 LaTeX 修复管道</strong><br>
+      ├─ L1: 提示词约束格式<br>
+      ├─ L2: AI 格式修复<br>
+      └─ L3: 正则清理兜底<br>
+      ↓<br>
+      💾 入库 + 艾宾浩斯复习计划
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="section">
+  <div class="section-title">✨ 技术亮点</div>
+  <div class="grid-2">
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem">📷</div>
+      <div style="font-weight:600;margin:.3rem 0">前端裁剪预览</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">框选+旋转+压缩，确认后再上传</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem">🧠</div>
+      <div style="font-weight:600;margin:.3rem 0">艾宾浩斯算法</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">对错自适应间隔，科学复习</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem">📐</div>
+      <div style="font-weight:600;margin:.3rem 0">LaTeX 数学渲染</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">3层AI修复，矩阵行列式完美</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:2rem">🎨</div>
+      <div style="font-weight:600;margin:.3rem 0">三主题切换</div>
+      <div style="font-size:.8rem;color:var(--text-muted)">日间/夜间/护眼，长时间不累</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p><strong>错题复习</strong> — AI 驱动的考研错题管理系统</p>
+  <p style="margin-top:.25rem">Next.js 16 + React 19 + TypeScript + SQLite + KaTeX + Sharp</p>
+  <p style="margin-top:.25rem">TRAE Work 构建 · 参加 TRAE 创造力大赛 · 学习工作赛道</p>
+  <p style="margin-top:.5rem">演示地址：<a href="https://demo.066112.xyz" style="color:var(--text)">demo.066112.xyz</a>（口令：demo2024）</p>
+</div>
+
+</div>
+</body>
+</html>
