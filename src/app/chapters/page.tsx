@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { IconFolder, IconBook, IconFile } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
+import { useModal } from "@/lib/modal";
 
 interface ChapterNode {
   id: number; name: string; parent_id: number | null;
@@ -13,6 +14,7 @@ interface ChapterNode {
 
 export default function ChaptersPage() {
   const { authed } = useAuth();
+  const modal = useModal();
   const [tree, setTree] = useState<ChapterNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
@@ -61,7 +63,8 @@ export default function ChaptersPage() {
   const handleDelete = async (node: ChapterNode) => {
     setError("");
     const label = node.level === 1 ? "科目" : node.level === 2 ? "章节" : "知识点";
-    if (!confirm(`确定删除${label}「${node.name}」？${node.children.length > 0 ? "（内含子分类，不可删除）" : ""}`)) return;
+    if (node.children.length > 0) { setError("内含子分类，不可删除"); return; }
+    if (!await modal.confirm(`删除${label}`, `确定删除${label}「${node.name}」？`)) return;
     const resp = await fetch(`/api/chapters?id=${node.id}`, { method: "DELETE" });
     if (!resp.ok) { setError((await resp.json()).error || "删除失败"); return; }
     await loadTree();

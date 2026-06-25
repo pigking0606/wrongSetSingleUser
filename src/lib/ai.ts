@@ -421,6 +421,13 @@ async function realAnalyze(
    - 行列式：$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$
    - 矩阵：$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$ 或 $\begin{bmatrix} a & b \\ c & d \end{bmatrix}$
    - 用 & 分隔列，用 \\\\ 分隔行
+   【图表/拓扑图识别】如果题目中包含图表、网络拓扑图、流程图、架构图等，必须在 ocrText 中用文字详细描述图中所有关键信息：
+   - 节点/设备名称与数量、连接关系（谁连谁）、链路速率/带宽/延迟
+   - IP 地址、MAC 地址、接口编号、VLAN ID 等所有数字标注
+   - 用结构化的文字呈现，例如：
+     「网络拓扑：路由器 R1(eth0: 10.0.0.1/24) --100Mbps-- 交换机 S1(端口1-3) -- 服务器 A(10.0.0.10)、B(10.0.0.11)、C(10.0.0.12)」
+     「流程图：开始 → 输入n → 判断n>0？→ [是]输出正数 → 结束；[否]输出负数 → 结束」
+   - 图表信息是解题的必要条件，缺失会导致题目无法作答
 2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
 3. correctAnswer：只给出该题的正确答案
 4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。
@@ -441,6 +448,13 @@ async function realAnalyze(
    - 行列式：$\begin{vmatrix} a & b \\ c & d \end{vmatrix}$
    - 矩阵：$\begin{pmatrix} a & b \\ c & d \end{pmatrix}$ 或 $\begin{bmatrix} a & b \\ c & d \end{bmatrix}$
    - 用 & 分隔列，用 \\\\ 分隔行
+   【图表/拓扑图识别】如果题目中包含图表、网络拓扑图、流程图、架构图等，必须在 ocrText 中用文字详细描述图中所有关键信息：
+   - 节点/设备名称与数量、连接关系（谁连谁）、链路速率/带宽/延迟
+   - IP 地址、MAC 地址、接口编号、VLAN ID 等所有数字标注
+   - 用结构化的文字呈现，例如：
+     「网络拓扑：路由器 R1(eth0: 10.0.0.1/24) --100Mbps-- 交换机 S1(端口1-3) -- 服务器 A(10.0.0.10)、B(10.0.0.11)、C(10.0.0.12)」
+     「流程图：开始 → 输入n → 判断n>0？→ [是]输出正数 → 结束；[否]输出负数 → 结束」
+   - 图表信息是解题的必要条件，缺失会导致题目无法作答
 2. classification：subject/chapter/knowledgePoint 必须从已知科目体系中选，不得自创
 3. correctAnswer：只给出该题的正确答案
 4. explanation：至少200字详细解析，必须包含：①知识点回顾 ②分步解题过程 ③易错点提醒。

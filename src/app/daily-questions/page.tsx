@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
-import { exportQuestionsPdf, type PdfQuestion } from "@/lib/pdf-export";
+import { ExportPdfModal } from "@/lib/export-pdf-modal";
+import type { PdfQuestion } from "@/lib/pdf-export";
 
 interface ChapterNode { id: number; name: string; level: number; }
 interface Question {
@@ -47,6 +48,7 @@ export default function DailyQuestionsPage() {
   const [shownAnswers, setShownAnswers] = useState<Set<number>>(new Set());
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
   const [shownImages, setShownImages] = useState<Set<number>>(new Set());
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
     fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects).catch(() => {});
@@ -133,18 +135,20 @@ export default function DailyQuestionsPage() {
         )}
       </div>
 
-            {/* PDF Export */}
+      {/* PDF Export */}
       {questions.length > 0 && (
-        <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
-          <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>导出PDF：</span>
-          <button className="btn btn-primary" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const label = subjectId ? subjects.find(s => s.id === subjectId)?.name || curDate : curDate;
-            exportQuestionsPdf(questions as PdfQuestion[], `新题_${label}.pdf`, true, `每日新题 · ${fmtDate(curDate)}`);
-          }}>含答案</button>
-          <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const label = subjectId ? subjects.find(s => s.id === subjectId)?.name || curDate : curDate;
-            exportQuestionsPdf(questions as PdfQuestion[], `新题_${label}_纯题目.pdf`, false, `每日新题（纯题目） · ${fmtDate(curDate)}`);
-          }}>纯题目</button>
+        <div>
+          <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={() => setShowExport(true)}>
+            📄 导出 PDF
+          </button>
+          {showExport && (
+            <ExportPdfModal
+              questions={questions as PdfQuestion[]}
+              label={subjectId ? subjects.find(s => s.id === subjectId)?.name || curDate : curDate}
+              defaultTitle={`每日新题 · ${fmtDate(curDate)}`}
+              onClose={() => setShowExport(false)}
+            />
+          )}
         </div>
       )}
 

@@ -115,7 +115,7 @@ export default function PlanPage() {
       while (true) {
         const dayTasks = all.filter(t => t.task_date === d);
         if (dayTasks.length === 0) break;
-        if (dayTasks.reduce((s, t) => s + (t.completion_pct || 0), 0) / dayTasks.length >= 80) { streak++; d = addDays(d, -1); }
+        if (dayTasks.every(t => (t.completion_pct || 0) >= 100)) { streak++; d = addDays(d, -1); }
         else break;
       }
       setStats({ streak, totalTasks: all.length, avgPct, avgDifficulty: avgDiff });

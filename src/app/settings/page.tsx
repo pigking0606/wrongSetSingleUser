@@ -4,9 +4,11 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { IconEye, IconSparkle } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
+import { useModal } from "@/lib/modal";
 
 export default function SettingsPage() {
   const { authed } = useAuth();
+  const modal = useModal();
   const [visionKey, setVisionKey] = useState("");
   const [visionModel, setVisionModel] = useState("");
   const [visionUrl, setVisionUrl] = useState("");
@@ -39,7 +41,7 @@ export default function SettingsPage() {
       }),
     });
     if (resp.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
-    else alert("保存失败");
+    else modal.alert("保存失败", "保存设置失败，请重试");
   };
 
   if (loading) return <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "3rem 0" }}>加载中...</p>;

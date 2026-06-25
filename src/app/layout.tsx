@@ -6,6 +6,7 @@ import "./globals.css";
 import "katex/dist/katex.min.css";
 import { IconSettings } from "@/lib/icons";
 import { useGlobalTimer } from "@/lib/study-timer";
+import { ModalProvider, useModal } from "@/lib/modal";
 
 const THEMES = [
   { key: "", label: "☀" },
@@ -20,25 +21,36 @@ const themeScript = `
 })()
 `.replace(/\n/g, "");
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState("");
-  const timer = useGlobalTimer();
+function VersionChecker() {
+  const { confirm } = useModal();
 
   useEffect(() => {
-    setTheme(localStorage.getItem("theme") || "");
-    // Auto-update check: polls /api/version every 30s, prompts reload on new deploy
     let currentVersion = 0;
     const check = async () => {
       try {
         const r = await fetch("/api/version", { cache: "no-store" });
         const { v } = await r.json();
         if (!currentVersion) currentVersion = v;
-        else if (v !== currentVersion && confirm("有新版本，是否立即更新？")) location.reload();
+        else if (v !== currentVersion) {
+          const ok = await confirm("版本更新", "有新版本，是否立即更新？");
+          if (ok) location.reload();
+        }
       } catch { /* ignore */ }
     };
     check();
     const timer = setInterval(check, 30000);
     return () => clearInterval(timer);
+  }, [confirm]);
+
+  return null;
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState("");
+  const timer = useGlobalTimer();
+
+  useEffect(() => {
+    setTheme(localStorage.getItem("theme") || "");
   }, []);
 
   const switchTheme = (key: string) => {
@@ -53,6 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-full">
+        <ModalProvider>
         <header className="border-b" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
           <div className="max-w-2xl mx-auto px-6 py-3 flex items-center justify-between">
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
@@ -88,6 +101,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
         <main className="max-w-2xl mx-auto p-6">{children}</main>
+        <VersionChecker />
+        </ModalProvider>
       </body>
     </html>
   );

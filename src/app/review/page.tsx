@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { useAuth } from "@/lib/auth-gate";
-import { exportQuestionsPdf, type PdfQuestion } from "@/lib/pdf-export";
+import { ExportPdfModal } from "@/lib/export-pdf-modal";
+import type { PdfQuestion } from "@/lib/pdf-export";
 
 interface ChapterNode { id: number; name: string; level: number; }
 interface DueQuestion {
@@ -36,6 +37,7 @@ export default function ReviewPage() {
   const [chapterL2Id, setChapterL2Id] = useState<number | null>(null);
   const [kpId, setKpId] = useState<number | null>(null);
   const [questionLimit, setQuestionLimit] = useState(10);
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => { fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects); }, []);
 
@@ -129,16 +131,18 @@ export default function ReviewPage() {
 
       {/* PDF Export */}
       {questions.length > 0 && (
-        <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
-          <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>导出PDF：</span>
-          <button className="btn btn-primary" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const label = subjectId ? subjects.find(s => s.id === subjectId)?.name || "复习" : "复习";
-            exportQuestionsPdf(questions as PdfQuestion[], `复习题_${label}.pdf`, true, `每日复习 · ${label}`);
-          }}>含答案</button>
-          <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const label = subjectId ? subjects.find(s => s.id === subjectId)?.name || "复习" : "复习";
-            exportQuestionsPdf(questions as PdfQuestion[], `复习题_${label}_纯题目.pdf`, false, `每日复习（纯题目） · ${label}`);
-          }}>纯题目</button>
+        <div>
+          <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={() => setShowExport(true)}>
+            📄 导出 PDF
+          </button>
+          {showExport && (
+            <ExportPdfModal
+              questions={questions as PdfQuestion[]}
+              label={subjectId ? subjects.find(s => s.id === subjectId)?.name || "复习" : "复习"}
+              defaultTitle={`每日复习 · ${subjectId ? subjects.find(s => s.id === subjectId)?.name || "复习" : "复习"}`}
+              onClose={() => setShowExport(false)}
+            />
+          )}
         </div>
       )}
 

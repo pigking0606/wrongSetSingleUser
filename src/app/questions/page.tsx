@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { useAuth } from "@/lib/auth-gate";
-import { exportQuestionsPdf } from "@/lib/pdf-export";
+import { ExportPdfModal } from "@/lib/export-pdf-modal";
+import { useModal } from "@/lib/modal";
 
 interface ChapterNode { id: number; name: string; level: number; }
 interface Question {
@@ -38,6 +39,8 @@ export default function QuestionsPage() {
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
   const [shownSolutions, setShownSolutions] = useState<Set<number>>(new Set());
   const [pdfCount, setPdfCount] = useState(20);
+  const [showExport, setShowExport] = useState(false);
+  const modal = useModal();
 
   // Edit mode
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -103,18 +106,19 @@ export default function QuestionsPage() {
 
   const handleDelete = async (id: number) => {
     if (!authed) return;
-    if (!confirm("确定删除？此操作不可恢复。")) return;
+    if (!await modal.confirm("删除题目", "确定删除？此操作不可恢复。")) return;
     await fetch(`/api/questions?id=${id}`, { method: "DELETE" });
     setQuestions(prev => prev.filter(q => q.id !== id));
   };
 
-  const handleReanalyze = (id: number, mode: "full" | "answer") => {
+  const handleReanalyze = async (id: number, mode: "full" | "answer") => {
     const label = mode === "full" ? "重解析全部（题干+答案+解析）" : "重解析答案（保留题干，重新生成答案解析）";
-    const reason = (window.prompt(`${label}\n\n如之前的解析有错误，请填写原因（可选，帮助AI修正）：`) || "").trim();
-    if (!confirm(`${label}${reason ? "（原因：" + reason + "）" : ""}，将在后台运行。继续？`)) return;
-    fetch("/api/reanalyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question_id: id, mode, reason }) })
+    const reason = await modal.prompt("重解析原因", "如之前的解析有错误，请填写原因（可选，帮助AI修正）：", "如：解析错误、分类不对");
+    if (reason === null) return; // user cancelled
+    const ok = await modal.confirm("确认重解析", `${label}${reason ? "（原因：" + reason + "）" : ""}，将在后台运行。继续？`);
+    if (!ok) return;
+    fetch("/api/reanalyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question_id: id, mode, reason: reason || "" }) })
       .then(() => {
-        // Update local state to show pending status
         setQuestions(prev => prev.map(qq => qq.id === id ? { ...qq, status: "pending", error_reason: null } : qq));
       });
   };
@@ -155,7 +159,7 @@ export default function QuestionsPage() {
       setEditKps(kpsData);
       setEditingId(q.id);
     } catch {
-      alert("加载编辑数据失败，请重试");
+      modal.alert("编辑失败", "加载编辑数据失败，请重试");
     } finally {
       setEditLoading(false);
     }
@@ -171,7 +175,7 @@ export default function QuestionsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...editForm, ai_solutions: aiSolutions, chapter_id: editChapterId || undefined }),
     });
-    if (!resp.ok) { alert("保存失败"); return; }
+    if (!resp.ok) { modal.alert("保存失败", "保存失败，请重试"); return; }
     setQuestions(prev => prev.map(q => q.id === id ? { ...q, ...editForm, ai_solutions: editForm.ai_solutions, chapter_id: editChapterId || q.chapter_id } : q));
     setEditingId(null);
   };
@@ -241,22 +245,18 @@ export default function QuestionsPage() {
 
       {/* PDF Export */}
       {questions.length > 0 && (
-        <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>导出PDF：</span>
-          <input type="number" min={1} max={questions.length} value={pdfCount}
-            onChange={e => { const v = parseInt(e.target.value); if (v >= 1 && v <= questions.length) setPdfCount(v); }}
-            style={{ width: "50px", fontSize: ".75rem", padding: ".2rem .3rem", boxSizing: "border-box" }} title="导出数量" />
-          <span style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>/ {questions.length} 题</span>
-          <button className="btn btn-primary" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const slice = questions.slice(0, pdfCount);
-            const label = [filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部";
-            exportQuestionsPdf(slice, `错题_${label}.pdf`, true, `错题导出 · ${label} · ${slice.length}题`);
-          }}>含答案</button>
-          <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => {
-            const slice = questions.slice(0, pdfCount);
-            const label = [filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部";
-            exportQuestionsPdf(slice, `错题_${label}_纯题目.pdf`, false, `错题导出（纯题目） · ${label} · ${slice.length}题`);
-          }}>纯题目</button>
+        <div>
+          <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={() => setShowExport(true)}>
+            📄 导出 PDF
+          </button>
+          {showExport && (
+            <ExportPdfModal
+              questions={questions as any[]}
+              label={[filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部"}
+              defaultTitle={`错题导出 · ${[filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部"}`}
+              onClose={() => setShowExport(false)}
+            />
+          )}
         </div>
       )}
 
