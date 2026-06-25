@@ -147,3 +147,33 @@ data/
 - 新增的 API 接口
 - 变更的启动步骤
 - 待完成任务列表的更新
+
+
+---
+
+## 部署
+
+### 服务器信息
+- **IP**: 43.134.234.119
+- **路径**: /www/wwwroot/wrongset
+- **PM2**: wrongset (端口 3000)
+- **Nginx**: 反向代理到 :3000，`proxy_cache off`，`location /_next/static/` 需代理
+- **域名**: 066112.xyz (Cloudflare DNS)
+
+### 自动部署
+push 到 `main` 分支后 GitHub Actions 自动执行：
+1. SSH 到服务器 → `cd /www/wwwroot/wrongset`
+2. `git pull origin main`
+3. `bash wrong.sh`（npm install → db:init → seed:408 → build → pm2 restart）
+
+### 手动部署
+```bash
+ssh root@43.134.234.119
+cd /www/wwwroot/wrongset
+bash wrong.sh
+```
+
+### 注意事项
+- 数据库备份：`cp data/app.db /tmp/app.db.backup`
+- 构建前清理缓存：`rm -rf .next node_modules/.cache`
+- `.env.local` 包含 API Key，已在 .gitignore 中排除

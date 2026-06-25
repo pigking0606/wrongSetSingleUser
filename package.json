@@ -8,9 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:init": "node scripts/init-db.mjs",
-    "seed": "node scripts/seed.mjs",
-    "seed:408": "node scripts/seed-408.mjs",
-    "seed:questions": "node scripts/seed-questions.mjs"
+    "seed:408": "node scripts/seed-408.mjs"
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
