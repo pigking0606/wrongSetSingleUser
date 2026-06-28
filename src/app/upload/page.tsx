@@ -125,16 +125,17 @@ export default function UploadPage() {
         setPreviewUrl(URL.createObjectURL(blob));
       }
       if (mode === "multiCrop") {
-        // Stay in crop mode to crop the next question
+        setCropping(false);
         setCrop(undefined); setCompletedCrop(null);
       } else {
         setCropping(false);
-      }
-      // Clean up crop source so clicking "拍第二页" won't flash the old image
-      if (mode !== "multiCrop") {
-        if (cropSrc) URL.revokeObjectURL(cropSrc);
-        setCropSrc(null);
-        setOriginalFile(null);
+        if (mode === "single") {
+          if (cropSrc) URL.revokeObjectURL(cropSrc);
+          setCropSrc(null); setOriginalFile(null);
+        } else if (mode === "twoPage") {
+          if (twoCropSrc) URL.revokeObjectURL(twoCropSrc);
+          setTwoCropSrc(null); setTwoOriginalFile(null);
+        }
       }
     } catch { setErrorMsg("裁剪失败"); }
   };
@@ -178,8 +179,19 @@ export default function UploadPage() {
   };
 
   const handleCancelCrop = () => {
-    if (cropSrc) URL.revokeObjectURL(cropSrc);
-    setCropSrc(null); setOriginalFile(null); setCropping(false); setPreviewUrl(null); setState("idle");
+    if (mode === "single") {
+      if (cropSrc) URL.revokeObjectURL(cropSrc);
+      setCropSrc(null); setOriginalFile(null);
+    } else if (mode === "twoPage") {
+      if (twoCropSrc) URL.revokeObjectURL(twoCropSrc);
+      setTwoCropSrc(null); setTwoOriginalFile(null);
+    } else {
+      if (multiCropSrc) URL.revokeObjectURL(multiCropSrc);
+      setMultiCropSrc(null); setMultiOriginalFile(null);
+      multiCrops.forEach(x => URL.revokeObjectURL(x.preview));
+      setMultiCrops([]);
+    }
+    setCropping(false); setPreviewUrl(null); setState("idle");
   };
 
   const handleReCrop = () => {
@@ -202,13 +214,24 @@ export default function UploadPage() {
   };
 
   const handleRotate = async (deg: 90 | 180 | 270) => {
-    if (!originalFile) return;
+    const file = mode === "single" ? originalFile : mode === "twoPage" ? twoOriginalFile : multiOriginalFile;
+    if (!file) return;
     try {
-      const blob = await rotateImage(originalFile, deg);
-      const rotated = new File([blob], originalFile.name, { type: "image/jpeg" });
-      setOriginalFile(rotated);
-      if (cropSrc) URL.revokeObjectURL(cropSrc);
-      setCropSrc(URL.createObjectURL(blob));
+      const blob = await rotateImage(file, deg);
+      const rotated = new File([blob], file.name, { type: "image/jpeg" });
+      if (mode === "single") {
+        setOriginalFile(rotated);
+        if (cropSrc) URL.revokeObjectURL(cropSrc);
+        setCropSrc(URL.createObjectURL(blob));
+      } else if (mode === "twoPage") {
+        setTwoOriginalFile(rotated);
+        if (twoCropSrc) URL.revokeObjectURL(twoCropSrc);
+        setTwoCropSrc(URL.createObjectURL(blob));
+      } else {
+        setMultiOriginalFile(rotated);
+        if (multiCropSrc) URL.revokeObjectURL(multiCropSrc);
+        setMultiCropSrc(URL.createObjectURL(blob));
+      }
       setCrop(undefined); setCompletedCrop(null);
     } catch { setErrorMsg("旋转失败"); setState("error"); }
   };
@@ -268,12 +291,13 @@ export default function UploadPage() {
         <div style={{ display: "flex", gap: ".75rem" }}>
           <button className="btn" style={{ flex: 1 }} onClick={() => {
             if (page1Preview) URL.revokeObjectURL(page1Preview);
-            setPage1Preview(null); setPage1Blob(null); if (cropSrc) URL.revokeObjectURL(cropSrc); setCropSrc(null); setOriginalFile(null); setCropping(true); setCurrentPage(1);
+            setPage1Preview(null); setPage1Blob(null);
+            if (twoCropSrc) URL.revokeObjectURL(twoCropSrc); setTwoCropSrc(null); setTwoOriginalFile(null); setCropping(true); setCurrentPage(1);
             setCrop(undefined); setCompletedCrop(null);
             setTimeout(() => cameraInputRef.current?.click(), 0);
           }}>重拍第1页</button>
           <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => {
-            if (cropSrc) URL.revokeObjectURL(cropSrc); setCropSrc(null); setOriginalFile(null); setCropping(true); setCurrentPage(2); setCrop(undefined); setCompletedCrop(null);
+            if (twoCropSrc) URL.revokeObjectURL(twoCropSrc); setTwoCropSrc(null); setTwoOriginalFile(null); setCropping(true); setCurrentPage(2); setCrop(undefined); setCompletedCrop(null);
             setTimeout(() => cameraInputRef.current?.click(), 0);
           }}>拍第二页</button>
         </div>
@@ -360,7 +384,7 @@ export default function UploadPage() {
         <p style={{ fontSize: ".875rem", color: "var(--text-muted)" }}>拖动选框选中题目</p>
         <div style={{ display: "flex", gap: ".5rem", justifyContent: "center" }}>
           {([90, 180, 270] as const).map(deg => (
-            <button key={deg} className="btn" style={{ fontSize: ".85rem", padding: ".4rem .75rem" }} onClick={() => { if (activeOriginalFile) handleRotate(deg); }}>↻ {deg}°</button>
+            <button key={deg} className="btn" style={{ fontSize: ".85rem", padding: ".4rem .75rem" }} onClick={() => handleRotate(deg)}>↻ {deg}°</button>
           ))}
         </div>
         <div className="card" style={{ padding: ".5rem", overflow: "hidden" }}>
