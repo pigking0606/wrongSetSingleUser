@@ -16,6 +16,7 @@ interface PlanTask {
   title: string; description: string; status: string;
   completion_pct: number; difficulty: number; time_spent: number;
   sort_order: number; completed_at: string | null;
+  last_edited_date: string | null;
 }
 
 interface Chapter {
@@ -76,6 +77,9 @@ export default function PlanPage() {
   // Timer state — one active timer at a time, persists across page navigation
   const timer = useGlobalTimer();
   const [showFullscreen, setShowFullscreen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const [progress, setProgress] = useState("");
   const [progressUpdated, setProgressUpdated] = useState("");
@@ -88,6 +92,17 @@ export default function PlanPage() {
       setProgress(d.content || "");
       setProgressUpdated(d.updated_at || "");
     }).catch(() => {});
+  }, []);
+
+  // Set timer save callback for auto-save (5-min) and pause-save
+  useEffect(() => {
+    globalTimer.setSaveCallback(async (taskId, sec) => {
+      if (sec > 0) {
+        await fetch('/api/plan-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: taskId, time_spent: sec }) });
+        setTasks(prev => prev.map(tt => tt.id === taskId ? { ...tt, time_spent: sec } : tt));
+      }
+    });
+    return () => { globalTimer.setSaveCallback(null); };
   }, []);
 
   const loadTasks = useCallback(async (date: string) => {
@@ -147,7 +162,6 @@ export default function PlanPage() {
     if (pct >= 100 && globalTimer.taskId === task.id && (globalTimer.running || globalTimer.paused)) {
       const sec = globalTimer.stop();
       setTasks(prev => prev.map(tt => tt.id === task.id ? { ...tt, time_spent: sec } : tt));
-      await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: task.id, time_spent: sec }) });
       toast(`任务完成，计时 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
     }
   };
@@ -173,6 +187,20 @@ export default function PlanPage() {
   };
 
   const deleteTask = async (id: number) => { await fetch(`/api/plan-tasks?id=${id}`, { method: "DELETE" }); loadTasks(curDate); loadStats(); toast("任务已删除"); };
+
+  const saveEdit = async () => {
+    if (!editingId || !editTitle.trim()) return;
+    setEditSaving(true);
+    try {
+      const resp = await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editingId, title: editTitle.trim() }) });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.error || "修改失败"); setEditSaving(false); return; }
+      setEditingId(null);
+      await loadTasks(curDate);
+      toast("任务已修改");
+    } catch { toast("修改失败"); }
+    setEditSaving(false);
+  };
 
   const saveSummary = async () => {
     setSaving(true);
@@ -358,22 +386,39 @@ export default function PlanPage() {
             return (
               <div key={t.id} className="card" style={{ display: "flex", flexDirection: "column", gap: ".4rem", padding: ".75rem .85rem", opacity: pct >= 100 ? 0.55 : 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
-                  <span style={{ flex: 1, fontSize: ".85rem", fontWeight: 500, textDecoration: pct >= 100 ? "line-through" : "none" }}>{t.title}</span>
-                  {chName && <span style={{ fontSize: ".7rem", background: "var(--tag-bg)", color: "var(--tag-text)", padding: ".15rem .4rem", borderRadius: "4px", whiteSpace: "nowrap" }}>{chName}</span>}
-                  {authed && <button onClick={() => deleteTask(t.id)} style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: ".1rem", lineHeight: 1 }} title="删除">
-                    <IconX size={14} />
-                  </button>}
+                  {editingId === t.id ? (
+                    <>
+                      <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+                        style={{ flex: 1, fontSize: ".85rem", fontWeight: 500 }}
+                        onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditingId(null); }}
+                        autoFocus />
+                      <button className="btn btn-primary" onClick={saveEdit} disabled={editSaving || !editTitle.trim()} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>保存</button>
+                      <button className="btn" onClick={() => setEditingId(null)} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>取消</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: ".85rem", fontWeight: 500, textDecoration: pct >= 100 ? "line-through" : "none" }}>{t.title}</span>
+                      {t.last_edited_date === today() && <span style={{ fontSize: ".65rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>今日已修改</span>}
+                      {chName && <span style={{ fontSize: ".7rem", background: "var(--tag-bg)", color: "var(--tag-text)", padding: ".15rem .4rem", borderRadius: "4px", whiteSpace: "nowrap" }}>{chName}</span>}
+                      {authed && isToday && t.last_edited_date !== today() && <button onClick={() => { setEditingId(t.id); setEditTitle(t.title); }} style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: ".1rem", lineHeight: 1 }} title="编辑">
+                        <IconPencil size={14} />
+                      </button>}
+                      {authed && isToday && <button onClick={() => deleteTask(t.id)} style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: ".1rem", lineHeight: 1 }} title="删除">
+                        <IconX size={14} />
+                      </button>}
+                    </>
+                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
                   <span style={{ fontSize: ".7rem", color: "var(--text-muted)", minWidth: "2.2rem" }}>完成</span>
-                  <input type="range" min={0} max={100} step={10} value={pct} disabled={!authed}
+                  <input type="range" min={0} max={100} step={10} value={pct} disabled={!authed || !isToday}
                     onChange={e => setCompletion(t, parseInt(e.target.value))}
                     style={{ flex: 1, accentColor: pct >= 100 ? "var(--green-text)" : "var(--accent)", height: "4px" }} />
                   <span style={{ fontSize: ".75rem", fontWeight: 600, minWidth: "2.5rem", textAlign: "right", color: pct >= 100 ? "var(--green-text)" : pct > 0 ? "var(--text)" : "var(--text-muted)" }}>{pct}%</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
                   <span style={{ fontSize: ".7rem", color: "var(--text-muted)", minWidth: "2.2rem" }}>难度</span>
-                  <input type="range" min={1} max={5} step={1} value={diff} disabled={!authed}
+                  <input type="range" min={1} max={5} step={1} value={diff} disabled={!authed || !isToday}
                     onChange={e => setDifficulty(t, parseInt(e.target.value))}
                     style={{ flex: 1, accentColor: diff >= 4 ? "var(--red-text)" : diff <= 2 ? "var(--green-text)" : "var(--accent)", height: "4px" }} />
                   <span style={{ display: "flex", gap: "2px", minWidth: "3rem", justifyContent: "flex-end" }}>
@@ -381,7 +426,7 @@ export default function PlanPage() {
                   </span>
                 </div>
                 {/* Timer row */}
-                {!isPast && authed && (
+                {isToday && authed && (
                   <div style={{ display: "flex", alignItems: "center", gap: ".4rem", borderTop: "1px solid var(--border)", paddingTop: ".4rem", marginTop: ".1rem" }}>
                     {timer.taskId === t.id ? (
                       <>
@@ -397,12 +442,10 @@ export default function PlanPage() {
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem", marginLeft: "auto" }}>
                           全屏
                         </button>
-                        <button className="btn" onClick={async () => {
+                        <button className="btn" onClick={() => {
                           const sec = globalTimer.stop();
                           if (sec > 0) {
-                            // Update local state immediately so next start uses correct accumulated value
                             setTasks(prev => prev.map(tt => tt.id === t.id ? { ...tt, time_spent: sec } : tt));
-                            await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, time_spent: sec }) });
                             toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
                           }
                         }}
@@ -426,7 +469,7 @@ export default function PlanPage() {
       </div>
 
       {/* Add task */}
-      {!isPast && authed && (
+      {isToday && authed && (
         <div style={{ display: "flex", flexDirection: "column", gap: ".4rem" }}>
           {showAdd ? (
             <div className="card" style={{ display: "flex", gap: ".5rem", padding: ".75rem", alignItems: "center" }}>
@@ -452,7 +495,7 @@ export default function PlanPage() {
         <textarea value={summary} onChange={e => setSummary(e.target.value)} readOnly={!authed} placeholder="今天学了什么？遇到什么困难？明天计划调整什么？"
           rows={3} style={{ width: "100%", boxSizing: "border-box", fontSize: ".85rem", lineHeight: 1.6, fontFamily: "inherit" }} />
         <div style={{ display: "flex", gap: ".5rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
-          {!isPast && authed && (
+          {isToday && authed && (
             <>
               <button className="btn" onClick={aiUpdateProgress} disabled={optimizing || !summary.trim()} style={{ fontSize: ".8rem", padding: ".35rem .6rem" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconSparkle size={14} /> {optimizing ? "更新中..." : "AI 更新总进度"}</span>
@@ -464,7 +507,7 @@ export default function PlanPage() {
       </div>
 
       {/* AI Suggest */}
-      {!isPast && authed && (
+      {isToday && authed && (
         <div className="card" style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
             <span style={{ fontWeight: 600, fontSize: ".9rem", flex: 1, display: "flex", alignItems: "center", gap: ".3rem" }}>
@@ -544,13 +587,12 @@ export default function PlanPage() {
           paused={timer.paused}
           onPause={globalTimer.pause}
           onResume={globalTimer.resume}
-          onStop={async () => {
+          onStop={() => {
             const sec = globalTimer.stop();
             if (sec > 0) {
               const tid = timer.taskId;
               if (tid) {
                 setTasks(prev => prev.map(tt => tt.id === tid ? { ...tt, time_spent: sec } : tt));
-                await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tid, time_spent: sec }) });
                 toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
               }
             }

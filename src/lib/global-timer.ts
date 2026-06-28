@@ -7,10 +7,39 @@ let _paused = false;
 let _startTime = 0;
 let _accumulated = 0;
 let _interval: ReturnType<typeof setInterval> | null = null;
+let _autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 const _listeners = new Set<Listener>();
+
+// Save callback — set by the page that owns the timer lifecycle
+let _onSave: ((taskId: number, seconds: number) => void) | null = null;
 
 function notify() {
   _listeners.forEach(fn => fn());
+}
+
+function getCurrentSeconds(): number {
+  return _accumulated + (_startTime ? Math.floor((Date.now() - _startTime) / 1000) : 0);
+}
+
+function clearAutoSave() {
+  if (_autoSaveInterval) { clearInterval(_autoSaveInterval); _autoSaveInterval = null; }
+}
+
+function startAutoSave() {
+  clearAutoSave();
+  _autoSaveInterval = setInterval(() => {
+    if (_taskId !== null && _onSave) {
+      const sec = getCurrentSeconds();
+      _onSave(_taskId, sec);
+    }
+  }, 300000); // 5 minutes
+}
+
+function triggerSave() {
+  if (_taskId !== null && _onSave) {
+    const sec = getCurrentSeconds();
+    _onSave(_taskId, sec);
+  }
 }
 
 // Which task is currently being timed (persists across navigation)
@@ -35,6 +64,7 @@ export const globalTimer = {
       _elapsed = Math.floor((Date.now() - _startTime) / 1000) + _accumulated;
       notify();
     }, 200);
+    startAutoSave();
   },
 
   pause() {
@@ -44,6 +74,8 @@ export const globalTimer = {
     _elapsed = _accumulated;
     _paused = true;
     _running = false;
+    clearAutoSave();
+    triggerSave(); // Save on pause
     notify();
   },
 
@@ -56,6 +88,7 @@ export const globalTimer = {
       _elapsed = Math.floor((Date.now() - _startTime) / 1000) + _accumulated;
       notify();
     }, 200);
+    startAutoSave();
   },
 
   stop(): number {
@@ -63,6 +96,8 @@ export const globalTimer = {
     if (!_running && !_paused && _accumulated === 0 && _startTime === 0) return 0;
     if (_interval) clearInterval(_interval);
     _interval = null;
+    clearAutoSave();
+    triggerSave(); // Save on stop
     const total = _accumulated + (_startTime ? Math.floor((Date.now() - _startTime) / 1000) : 0);
     _elapsed = 0;
     _running = false;
@@ -76,6 +111,8 @@ export const globalTimer = {
   },
 
   setTask(id: number, title: string) { _taskId = id; _taskTitle = title; notify(); },
+
+  setSaveCallback(fn: ((taskId: number, seconds: number) => void) | null) { _onSave = fn; },
 
   subscribe(fn: Listener) {
     _listeners.add(fn);

@@ -9,6 +9,7 @@ import { cropImage, rotateImage, compressImage, mergeImagesVertical } from "@/li
 import { useAuth, AuthGate } from "@/lib/auth-gate";
 
 type PageState = "idle" | "uploading" | "success" | "error";
+type UploadMode = "single" | "twoPage" | "multiCrop";
 
 export default function UploadPage() {
   const { authed, login } = useAuth();
@@ -31,7 +32,7 @@ export default function UploadPage() {
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
 
   // Two-page mode
-  const [twoPageMode, setTwoPageMode] = useState(false);
+  const [mode, setMode] = useState<UploadMode>("single");
   const [page1Blob, setPage1Blob] = useState<Blob | null>(null);
   const [page2Blob, setPage2Blob] = useState<Blob | null>(null);
   const [page1Preview, setPage1Preview] = useState<string | null>(null);
@@ -39,19 +40,50 @@ export default function UploadPage() {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Multi-crop mode (single photo, multiple questions)
-  const [multiCropMode, setMultiCropMode] = useState(false);
+    const [twoCropSrc, setTwoCropSrc] = useState<string | null>(null);
+  const [twoOriginalFile, setTwoOriginalFile] = useState<File | null>(null);
+  const [twoAnswer, setTwoAnswer] = useState("");
+  const [twoErrorMsg, setTwoErrorMsg] = useState("");
+  const [twoState, setTwoState] = useState<PageState>("idle");
+
+  // Multi-crop mode (single photo, multiple questions)
+  const [multiCropSrc, setMultiCropSrc] = useState<string | null>(null);
+  const [multiOriginalFile, setMultiOriginalFile] = useState<File | null>(null);
+  const [multiCropAnswer, setMultiCropAnswer] = useState("");
+  const [multiErrorMsg, setMultiErrorMsg] = useState("");
+  const [multiState, setMultiState] = useState<PageState>("idle");
   const [multiCrops, setMultiCrops] = useState<{blob: Blob; preview: string}[]>([]);
 
   // ---- File handling ----
   const handleFile = useCallback((f: File) => {
-    if (!f.type.startsWith("image/")) { setErrorMsg("请选择图片文件"); setState("error"); return; }
-    if (f.size > 10 * 1024 * 1024) { setErrorMsg("文件不能超过 10MB"); setState("error"); return; }
+    if (!f.type.startsWith("image/")) {
+      if (mode === "single") { setErrorMsg("请选择图片文件"); setState("error"); }
+      else if (mode === "twoPage") { setTwoErrorMsg("请选择图片文件"); setTwoState("error"); }
+      else { setMultiErrorMsg("请选择图片文件"); setMultiState("error"); }
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      if (mode === "single") { setErrorMsg("文件不能超过 10MB"); setState("error"); }
+      else if (mode === "twoPage") { setTwoErrorMsg("文件不能超过 10MB"); setTwoState("error"); }
+      else { setMultiErrorMsg("文件不能超过 10MB"); setMultiState("error"); }
+      return;
+    }
     const src = URL.createObjectURL(f);
-    setOriginalFile(f); setCropSrc(src); setCropping(true);
-    setPreviewUrl(null); setCroppedBlob(null);
-    setCrop(undefined); setCompletedCrop(null);
-    setState("idle"); setErrorMsg("");
-  }, []);
+    if (mode === "single") {
+      setOriginalFile(f); setCropSrc(src); setCropping(true);
+      setPreviewUrl(null); setCroppedBlob(null);
+      setCrop(undefined); setCompletedCrop(null);
+      setState("idle"); setErrorMsg("");
+    } else if (mode === "twoPage") {
+      setTwoOriginalFile(f); setTwoCropSrc(src); setCropping(true);
+      setCrop(undefined); setCompletedCrop(null);
+      setTwoState("idle"); setTwoErrorMsg("");
+    } else {
+      setMultiOriginalFile(f); setMultiCropSrc(src); setCropping(true);
+      setCrop(undefined); setCompletedCrop(null);
+      setMultiState("idle"); setMultiErrorMsg("");
+    }
+  }, [mode]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -76,11 +108,10 @@ export default function UploadPage() {
     setErrorMsg("");
     try {
       const blob = await cropImage(imgRef.current, completedCrop);
-      if (multiCropMode) {
+      if (mode === "multiCrop") {
         const preview = URL.createObjectURL(blob);
         setMultiCrops(prev => [...prev, { blob, preview }]);
-        setCrop(undefined); setCompletedCrop(null); // reset for next crop
-      } else if (twoPageMode) {
+      } else if (mode === "twoPage") {
         if (currentPage === 1) {
           setPage1Blob(blob); if (page1Preview) URL.revokeObjectURL(page1Preview);
           setPage1Preview(URL.createObjectURL(blob));
@@ -93,11 +124,18 @@ export default function UploadPage() {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(URL.createObjectURL(blob));
       }
-      setCropping(false);
+      if (mode === "multiCrop") {
+        // Stay in crop mode to crop the next question
+        setCrop(undefined); setCompletedCrop(null);
+      } else {
+        setCropping(false);
+      }
       // Clean up crop source so clicking "拍第二页" won't flash the old image
-      if (cropSrc) URL.revokeObjectURL(cropSrc);
-      setCropSrc(null);
-      setOriginalFile(null);
+      if (mode !== "multiCrop") {
+        if (cropSrc) URL.revokeObjectURL(cropSrc);
+        setCropSrc(null);
+        setOriginalFile(null);
+      }
     } catch { setErrorMsg("裁剪失败"); }
   };
 
@@ -106,7 +144,7 @@ export default function UploadPage() {
     setState("uploading"); setErrorMsg("");
     try {
       let finalBlob: Blob;
-      if (multiCropMode) {
+      if (mode === "multiCrop") {
         if (multiCrops.length === 0) return;
         for (let i = 0; i < multiCrops.length; i++) {
           const comp = await compressImage(multiCrops[i].blob, 2048);
@@ -119,7 +157,7 @@ export default function UploadPage() {
         multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
         setMultiCrops([]); setState("success"); return;
       }
-      if (twoPageMode) {
+      if (mode === "twoPage") {
         if (!page1Blob || !page2Blob) { setErrorMsg("请先裁剪两页"); setState("idle"); return; }
         finalBlob = await mergeImagesVertical(page1Blob, page2Blob, 2048);
       } else {
@@ -176,7 +214,7 @@ export default function UploadPage() {
   };
 
   // ---- MULTI-CROP REVIEW (done cropping, ready to upload all) ----
-  if (multiCropMode && !cropping && multiCrops.length > 0 && cropSrc) {
+  if (mode === "multiCrop" && !cropping && multiCrops.length > 0) {
     const removeCrop = (i: number) => {
       URL.revokeObjectURL(multiCrops[i].preview);
       setMultiCrops(prev => prev.filter((_, j) => j !== i));
@@ -215,7 +253,7 @@ export default function UploadPage() {
 
   // ---- TWO-PAGE PREVIEW (page 1 done, page 2 not yet) ----
   // Only show when NOT actively cropping (i.e., user hasn't taken page 2 photo yet)
-  if (twoPageMode && page1Preview && page1Blob && !page2Preview && !cropping) {
+  if (mode === "twoPage" && page1Preview && page1Blob && !page2Preview && !cropping) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>第1页已裁剪 ✓</h1>
@@ -246,7 +284,7 @@ export default function UploadPage() {
   }
 
   // ---- TWO-PAGE PREVIEW (both pages done, ready to merge) ----
-  if (twoPageMode && page1Preview && page2Preview && page1Blob && page2Blob) {
+  if (mode === "twoPage" && page1Preview && page2Preview && page1Blob && page2Blob) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>两页已裁剪 ✓</h1>
@@ -282,7 +320,7 @@ export default function UploadPage() {
   }
 
   // ---- SINGLE PAGE PREVIEW ----
-  if (!twoPageMode && previewUrl && croppedBlob) {
+  if (mode !== "twoPage" && previewUrl && croppedBlob) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>裁剪预览</h1>
@@ -313,19 +351,21 @@ export default function UploadPage() {
   if (!authed) return <AuthGate authed={false} onLogin={login}><div /></AuthGate>;
 
   // ---- CROP UI ----
-  if (cropping && cropSrc) {
+  const activeCropSrc = mode === "single" ? cropSrc : mode === "twoPage" ? twoCropSrc : multiCropSrc;
+  const activeOriginalFile = mode === "single" ? originalFile : mode === "twoPage" ? twoOriginalFile : multiOriginalFile;
+  if (cropping && activeCropSrc) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>框选题目区域</h1>
         <p style={{ fontSize: ".875rem", color: "var(--text-muted)" }}>拖动选框选中题目</p>
         <div style={{ display: "flex", gap: ".5rem", justifyContent: "center" }}>
           {([90, 180, 270] as const).map(deg => (
-            <button key={deg} className="btn" style={{ fontSize: ".85rem", padding: ".4rem .75rem" }} onClick={() => handleRotate(deg)}>↻ {deg}°</button>
+            <button key={deg} className="btn" style={{ fontSize: ".85rem", padding: ".4rem .75rem" }} onClick={() => { if (activeOriginalFile) handleRotate(deg); }}>↻ {deg}°</button>
           ))}
         </div>
         <div className="card" style={{ padding: ".5rem", overflow: "hidden" }}>
           <ReactCrop crop={crop} onChange={(c) => setCrop(c)} onComplete={handleCropComplete} aspect={undefined}>
-            <img ref={(el) => { imgRef.current = el; }} src={cropSrc} alt="裁剪" style={{ maxWidth: "100%", maxHeight: "50vh" }} />
+            <img ref={(el) => { imgRef.current = el; }} src={activeCropSrc} alt="裁剪" style={{ maxWidth: "100%", maxHeight: "50vh" }} />
           </ReactCrop>
         </div>
         {multiCrops.length > 0 && (
@@ -337,10 +377,10 @@ export default function UploadPage() {
         <div style={{ display: "flex", gap: ".75rem" }}>
           <button className="btn" style={{ flex: 1 }} onClick={handleCancelCrop}>取消</button>
           <button className="btn btn-primary" style={{ flex: 1 }} disabled={!completedCrop?.width} onClick={handleDoCrop}>
-            {multiCropMode ? `框选第 ${multiCrops.length + 1} 题` : "确认裁剪"}
+            {mode === "multiCrop" ? `框选第 ${multiCrops.length + 1} 题` : "确认裁剪"}
           </button>
         </div>
-        {multiCropMode && multiCrops.length > 0 && (
+        {mode === "multiCrop" && multiCrops.length > 0 && (
           <button className="btn btn-success" style={{ padding: ".6rem" }} onClick={() => setCropping(false)}>
             完成框选 ({multiCrops.length} 题)
           </button>
@@ -377,15 +417,15 @@ export default function UploadPage() {
       <div style={{ display: "flex", alignItems: "center", gap: ".75rem" }}>
         <h1 style={{ fontSize: "1.25rem", fontWeight: 700, flex: 1 }}>上传错题</h1>
         {/* Single page: exit any special mode */}
-        {(multiCropMode || twoPageMode) && (
+        {(mode !== "single") && (
           <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
-            if (multiCropMode) {
+            if (mode === "multiCrop") {
               multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
               setMultiCrops([]);
-              setMultiCropMode(false);
+              setMode("single");
             }
-            if (twoPageMode) {
-              setTwoPageMode(false);
+            if (mode === "twoPage") {
+              setMode("single");
               setPage1Blob(null); setPage2Blob(null);
               if (page1Preview) URL.revokeObjectURL(page1Preview);
               if (page2Preview) URL.revokeObjectURL(page2Preview);
@@ -393,20 +433,20 @@ export default function UploadPage() {
             }
             resetCropState();
           }}>
-            {multiCropMode ? "退出多题" : "退出双页"}
+            {mode === "multiCrop" ? "退出多题" : "退出双页"}
           </button>
         )}
         {/* Multi-crop toggle */}
         <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
-          if (multiCropMode) {
-            setMultiCropMode(false);
+          if (mode === "multiCrop") {
+            setMode("single");
             multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
             setMultiCrops([]);
             resetCropState();
           } else {
-            setMultiCropMode(true);
-            if (twoPageMode) {
-              setTwoPageMode(false);
+            setMode("multiCrop");
+            if (mode === "twoPage") {
+              setMode("single");
               setPage1Blob(null); setPage2Blob(null);
               if (page1Preview) URL.revokeObjectURL(page1Preview);
               if (page2Preview) URL.revokeObjectURL(page2Preview);
@@ -415,31 +455,31 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {multiCropMode ? "多题框选 ✓" : "多题框选"}
+          {mode === "multiCrop" ? "多题框选 ✓" : "多题框选"}
         </button>
         {/* Two-page toggle */}
         <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
-          if (twoPageMode) {
-            setTwoPageMode(false);
+          if (mode === "twoPage") {
+            setMode("single");
             setPage1Blob(null); setPage2Blob(null);
             if (page1Preview) URL.revokeObjectURL(page1Preview);
             if (page2Preview) URL.revokeObjectURL(page2Preview);
             setPage1Preview(null); setPage2Preview(null); setCurrentPage(1);
             resetCropState();
           } else {
-            setTwoPageMode(true);
-            if (multiCropMode) {
-              setMultiCropMode(false);
+            setMode("twoPage");
+            if (mode === "multiCrop") {
+              setMode("single");
               multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
               setMultiCrops([]);
             }
             resetCropState();
           }
         }}>
-          {twoPageMode ? "双页合成 ✓" : "双页合成"}
+          {mode === "twoPage" ? "双页合成 ✓" : "双页合成"}
         </button>
       </div>
-      {twoPageMode && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
+      {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
 
       <div style={{ display: "flex", gap: ".75rem" }}>
         <button className="btn btn-primary" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem" }} onClick={() => cameraInputRef.current?.click()}><IconCamera size={16} /> 拍照</button>

@@ -109,6 +109,7 @@ export default function QuestionsPage() {
     if (!await modal.confirm("删除题目", "确定删除？此操作不可恢复。")) return;
     await fetch(`/api/questions?id=${id}`, { method: "DELETE" });
     setQuestions(prev => prev.filter(q => q.id !== id));
+    setTotal(prev => Math.max(0, prev - 1));
   };
 
   const handleReanalyze = async (id: number, mode: "full" | "answer") => {

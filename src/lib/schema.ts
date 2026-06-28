@@ -119,7 +119,8 @@ export async function initSchema() {
     "ALTER TABLE plan_tasks ADD COLUMN completion_pct INTEGER DEFAULT 100",
     "ALTER TABLE plan_tasks ADD COLUMN difficulty INTEGER DEFAULT 3",
     "ALTER TABLE plan_tasks ADD COLUMN time_spent INTEGER DEFAULT 0",
-    "ALTER TABLE plan_tasks ADD COLUMN external_id TEXT",
+    "ALTER TABLE plan_tasks ADD COLUMN last_edited_date TEXT,
+    ALTER TABLE plan_tasks ADD COLUMN external_id TEXT",
     "ALTER TABLE questions ADD COLUMN external_id TEXT",
   ];
   // Create index for external_id lookups

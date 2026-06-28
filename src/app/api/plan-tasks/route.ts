@@ -18,6 +18,7 @@ type TaskRow = {
   title: string; description: string; status: string;
   completion_pct: number; difficulty: number; time_spent: number;
   sort_order: number; completed_at: string | null;
+  last_edited_date: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -93,8 +94,22 @@ export async function PUT(req: NextRequest) {
   const { id, title, chapter_id, description, completion_pct, difficulty, time_spent, sort_order } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
+  // Only allow updates to today's tasks
+  const task = queryOne<{ task_date: string; last_edited_date: string | null }>("SELECT task_date, last_edited_date FROM plan_tasks WHERE id=?", [id]);
+  if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
+  if (task.task_date !== today()) {
+    return NextResponse.json({ error: "can only modify today's plan" }, { status: 403 });
+  }
+
   const sets: string[] = [];
   const vals: any[] = [];
+  // Once-per-day edit guard for title/description changes
+  if (title !== undefined || description !== undefined) {
+    if (task.last_edited_date === today()) {
+      return NextResponse.json({ error: "today already edited" }, { status: 403 });
+    }
+    sets.push("last_edited_date=?"); vals.push(today());
+  }
   if (title !== undefined) { sets.push("title=?"); vals.push(title); }
   if (chapter_id !== undefined) { sets.push("chapter_id=?"); vals.push(chapter_id); }
   if (description !== undefined) { sets.push("description=?"); vals.push(description); }
@@ -126,11 +141,19 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+
 export async function DELETE(req: NextRequest) {
   await initSchema();
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const task = queryOne<{ task_date: string }>("SELECT task_date FROM plan_tasks WHERE id=?", [parseInt(id)]);
+  if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
+  if (task.task_date !== today()) {
+    return NextResponse.json({ error: "can only delete today's plan" }, { status: 403 });
+  }
+
   runAndSave("DELETE FROM plan_tasks WHERE id=?", [parseInt(id)]);
   return NextResponse.json({ ok: true });
 }
