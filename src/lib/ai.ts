@@ -37,6 +37,10 @@ const BARE_EXPONENT = /(?:[a-zA-Z0-9]+)?[\^_](?:\{[^}]+\}|[a-zA-Z0-9]+)/g;
 const BLOCK_RE = /(\$\$[\s\S]+?\$\$)/g;
 const INLINE_RE = /(\$[^$]+\$)/g;
 
+// Match \begin{env}...\end{env} blocks (matrix, determinant, cases, aligned, etc.)
+// Uses backreference \2 to ensure begin/end environment names match
+const ENV_BLOCK = /(\\begin\{([^}]+)\}[\s\S]*?\\end\{\2\})/g;
+
 export function autoWrapMathDelimiters(text: string): string {
   if (!text) return text;
 
@@ -52,8 +56,10 @@ export function autoWrapMathDelimiters(text: string): string {
       if (ip.startsWith("$") && ip.endsWith("$") && ip.length > 2 && j % 2 === 1) return ip;
 
       // Non-math segment — wrap bare LaTeX fragments
+      // Pass 0: wrap \begin{...}...\end{...} blocks as a unit (matrix, determinant, etc.)
+      let processed = ip.replace(ENV_BLOCK, (match) => `$${match}$`);
       // Pass 1: wrap LaTeX commands (\frac, \lim, etc.)
-      let processed = ip.replace(LATEX_FRAGMENT, (match) => {
+      processed = processed.replace(LATEX_FRAGMENT, (match) => {
         if (/^\\[bfnrt]$/.test(match)) return match;
         return `$${match}$`;
       });
@@ -174,9 +180,9 @@ export function sanitizeLatex(text: string): string {
   text = text.replace(/\^\{(\s*)\$([^$]+)\$(\s*)\}/g, "^{$1$2$3}");
   text = text.replace(/_\{(\s*)\$([^$]+)\$(\s*)\}/g, "_{$1$2$3}");
 
-  // 1b. Remove extra $ around matrix environments (AI sometimes adds $\begin{vmatrix}...\end{vmatrix}$)
-  text = text.replace(/\$(\\begin\{[^}]+\})/g, "$1");
-  text = text.replace(/(\\end\{[^}]+\})\$/g, "$1");
+  // 1b. Fix double-wrapped matrix environments: $$\begin{vmatrix}...\end{vmatrix}$$
+  //     (display math around an environment that's already math mode) → single $...$
+  text = text.replace(/\$\$(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})\$\$/g, "$$$1$");
 
   // 2. Merge adjacent inline blocks: $a$$b$ → $ab$
   text = text.replace(/\$(\s*)\$/g, (_, space) => space || " ");
