@@ -204,9 +204,12 @@ export default function PlanPage() {
 
   const saveSummary = async () => {
     setSaving(true);
-    await fetch("/api/daily-summaries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary_date: curDate, content: summary }) });
+    try {
+      const res = await fetch("/api/daily-summaries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary_date: curDate, content: summary }) });
+      if (!res.ok) { const d = await res.json(); toast(d.error || "小结保存失败"); setSaving(false); return; }
+      toast("小结已保存");
+    } catch { toast("小结保存失败"); }
     setSaving(false);
-    toast("小结已保存");
   };
 
   const saveProgress = async (content: string) => {
@@ -221,8 +224,9 @@ export default function PlanPage() {
     try {
       const res = await fetch("/api/learning-progress/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: progress, mode: "optimize" }) });
       const data = await res.json();
-      if (data.content && data.content !== progress) setProgress(data.content);
-    } catch { /* */ }
+      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 优化完成，满意后请点击保存进度"); }
+      else { toast("AI 优化完成，内容未变化"); }
+    } catch { toast("AI 优化失败"); }
     setOptimizing(false);
   };
 
@@ -231,8 +235,9 @@ export default function PlanPage() {
     try {
       const res = await fetch("/api/learning-progress/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: progress, mode: "update", summaryDate: curDate }) });
       const data = await res.json();
-      if (data.content && data.content !== progress) setProgress(data.content);
-    } catch { /* */ }
+      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 已根据今日小结更新总进度"); }
+      else { toast("AI 更新完成，内容未变化"); }
+    } catch { toast("AI 更新失败"); }
     setOptimizing(false);
   };
 
@@ -490,10 +495,18 @@ export default function PlanPage() {
       {/* Daily summary */}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
         <label style={{ fontWeight: 600, fontSize: ".9rem", display: "flex", alignItems: "center", gap: ".3rem" }}>
-          <IconPencil size={16} /> 今日小结
+          <IconPencil size={16} /> {isToday ? "今日小结" : "历史小结"}
         </label>
-        <textarea value={summary} onChange={e => setSummary(e.target.value)} readOnly={!authed} placeholder="今天学了什么？遇到什么困难？明天计划调整什么？"
-          rows={3} style={{ width: "100%", boxSizing: "border-box", fontSize: ".85rem", lineHeight: 1.6, fontFamily: "inherit" }} />
+        {isToday ? (
+          <textarea value={summary} onChange={e => setSummary(e.target.value)} readOnly={!authed} placeholder="今天学了什么？遇到什么困难？明天计划调整什么？"
+            rows={3} style={{ width: "100%", boxSizing: "border-box", fontSize: ".85rem", lineHeight: 1.6, fontFamily: "inherit" }} />
+        ) : (
+          summary ? (
+            <div style={{ fontSize: ".85rem", lineHeight: 1.6, whiteSpace: "pre-wrap", color: "var(--text)", padding: ".5rem 0" }}>{summary}</div>
+          ) : (
+            <div style={{ fontSize: ".85rem", color: "var(--text-muted)", padding: ".5rem 0" }}>暂无小结</div>
+          )
+        )}
         <div style={{ display: "flex", gap: ".5rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
           {isToday && authed && (
             <>

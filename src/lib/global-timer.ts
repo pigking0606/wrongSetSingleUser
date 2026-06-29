@@ -6,7 +6,6 @@ let _running = false;
 let _paused = false;
 let _startTime = 0;
 let _accumulated = 0;
-let _interval: ReturnType<typeof setInterval> | null = null;
 let _autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 const _listeners = new Set<Listener>();
 
@@ -46,6 +45,20 @@ function triggerSave() {
 let _taskId: number | null = null;
 let _taskTitle = "";
 
+// Timer tick using recursive setTimeout to prevent callback stacking
+let _tickTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function tick() {
+  if (!_running) return;
+  _elapsed = Math.floor((Date.now() - _startTime) / 1000) + _accumulated;
+  notify();
+  _tickTimeout = setTimeout(tick, 200);
+}
+
+function clearTick() {
+  if (_tickTimeout) { clearTimeout(_tickTimeout); _tickTimeout = null; }
+}
+
 export const globalTimer = {
   get elapsed() { return _elapsed; },
   get running() { return _running; },
@@ -54,22 +67,22 @@ export const globalTimer = {
   get taskTitle() { return _taskTitle; },
 
   start(fromSec = 0) {
-    if (_interval) clearInterval(_interval);
+    // Guard against double-start
+    if (_running) return;
+    if (_paused) { this.resume(); return; }
+    clearTick();
     _startTime = Date.now();
     _accumulated = fromSec;
     _elapsed = fromSec;
     _running = true;
     _paused = false;
-    _interval = setInterval(() => {
-      _elapsed = Math.floor((Date.now() - _startTime) / 1000) + _accumulated;
-      notify();
-    }, 200);
+    tick();
     startAutoSave();
   },
 
   pause() {
-    if (_interval) clearInterval(_interval);
-    _interval = null;
+    if (!_running) return;
+    clearTick();
     _accumulated += Math.floor((Date.now() - _startTime) / 1000);
     _elapsed = _accumulated;
     _paused = true;
@@ -80,22 +93,20 @@ export const globalTimer = {
   },
 
   resume() {
-    if (_interval) clearInterval(_interval);
+    if (_running) return;
+    if (!_paused) return;
+    clearTick();
     _startTime = Date.now();
     _running = true;
     _paused = false;
-    _interval = setInterval(() => {
-      _elapsed = Math.floor((Date.now() - _startTime) / 1000) + _accumulated;
-      notify();
-    }, 200);
+    tick();
     startAutoSave();
   },
 
   stop(): number {
     // Guard against double-stop: if timer is already stopped, return 0
     if (!_running && !_paused && _accumulated === 0 && _startTime === 0) return 0;
-    if (_interval) clearInterval(_interval);
-    _interval = null;
+    clearTick();
     clearAutoSave();
     triggerSave(); // Save on stop
     const total = _accumulated + (_startTime ? Math.floor((Date.now() - _startTime) / 1000) : 0);
