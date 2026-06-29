@@ -94,13 +94,16 @@ export default function PlanPage() {
     }).catch(() => {});
   }, []);
 
-  // Set timer save callback for auto-save (5-min) and pause-save
+  // Set timer save callback — server computes duration from timestamps
   useEffect(() => {
-    globalTimer.setSaveCallback(async (taskId, sec) => {
-      if (sec > 0) {
-        await fetch('/api/plan-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: taskId, time_spent: sec }) });
-        setTasks(prev => prev.map(tt => tt.id === taskId ? { ...tt, time_spent: sec } : tt));
-      }
+    globalTimer.setSaveCallback(async (taskId, action) => {
+      try {
+        const resp = await fetch('/api/plan-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: taskId, timer_action: action }) });
+        const data = await resp.json();
+        if (data.ok && data.time_spent !== undefined) {
+          setTasks(prev => prev.map(tt => tt.id === taskId ? { ...tt, time_spent: data.time_spent } : tt));
+        }
+      } catch { /* */ }
     });
     return () => { globalTimer.setSaveCallback(null); };
   }, []);
@@ -161,7 +164,6 @@ export default function PlanPage() {
     // Auto-stop timer if task is completed while being timed
     if (pct >= 100 && globalTimer.taskId === task.id && (globalTimer.running || globalTimer.paused)) {
       const sec = globalTimer.stop();
-      setTasks(prev => prev.map(tt => tt.id === task.id ? { ...tt, time_spent: sec } : tt));
       toast(`任务完成，计时 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
     }
   };
@@ -449,17 +451,14 @@ export default function PlanPage() {
                         </button>
                         <button className="btn" onClick={() => {
                           const sec = globalTimer.stop();
-                          if (sec > 0) {
-                            setTasks(prev => prev.map(tt => tt.id === t.id ? { ...tt, time_spent: sec } : tt));
-                            toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
-                          }
+                          toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
                         }}
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem", color: "var(--text-muted)" }}>
                           结束
                         </button>
                       </>
                     ) : (
-                      <button className="btn" onClick={() => { globalTimer.start(t.time_spent || 0); globalTimer.setTask(t.id, t.title); }}
+                      <button className="btn" onClick={async () => { await fetch('/api/plan-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, timer_action: "start" }) }); globalTimer.start(t.time_spent || 0); globalTimer.setTask(t.id, t.title); }}
                         disabled={timer.taskId !== null || pct >= 100}
                         style={{ fontSize: ".7rem", padding: ".15rem .5rem", opacity: (timer.taskId !== null || pct >= 100) ? 0.4 : 1 }}>
                         {pct >= 100 ? `已完成 ${t.time_spent > 0 ? `${Math.floor(t.time_spent/60)}分` : ""}` : `开始计时${t.time_spent > 0 ? ` (${Math.floor(t.time_spent/60)}分)` : ""}`}
@@ -602,13 +601,7 @@ export default function PlanPage() {
           onResume={globalTimer.resume}
           onStop={() => {
             const sec = globalTimer.stop();
-            if (sec > 0) {
-              const tid = timer.taskId;
-              if (tid) {
-                setTasks(prev => prev.map(tt => tt.id === tid ? { ...tt, time_spent: sec } : tt));
-                toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
-              }
-            }
+            toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
             setShowFullscreen(false);
           }}
         />

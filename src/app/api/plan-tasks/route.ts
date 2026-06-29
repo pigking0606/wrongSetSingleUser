@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   await initSchema();
   const body = await req.json();
-  const { id, title, chapter_id, description, completion_pct, difficulty, time_spent, sort_order } = body;
+  const { id, title, chapter_id, description, completion_pct, difficulty, time_spent, sort_order, timer_action } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   // Only allow updates to today's tasks
@@ -99,6 +99,28 @@ export async function PUT(req: NextRequest) {
   if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
   if (task.task_date !== today()) {
     return NextResponse.json({ error: "can only modify today's plan" }, { status: 403 });
+  }
+
+  // Timer actions — server computes duration from timestamps, no double-counting
+  if (timer_action) {
+    if (timer_action === "start") {
+      runAndSave("UPDATE plan_tasks SET timer_started_at=datetime('now','localtime') WHERE id=?", [id]);
+    } else if (timer_action === "pause" || timer_action === "stop") {
+      runAndSave(
+        "UPDATE plan_tasks SET time_spent = time_spent + MAX(0, CAST((julianday('now','localtime') - julianday(timer_started_at)) * 86400 AS INTEGER)), timer_started_at = NULL WHERE id = ? AND timer_started_at IS NOT NULL",
+        [id]
+      );
+    } else if (timer_action === "resume") {
+      runAndSave("UPDATE plan_tasks SET timer_started_at=datetime('now','localtime') WHERE id=?", [id]);
+    } else if (timer_action === "autosave") {
+      runAndSave(
+        "UPDATE plan_tasks SET time_spent = time_spent + MAX(0, CAST((julianday('now','localtime') - julianday(timer_started_at)) * 86400 AS INTEGER)), timer_started_at = datetime('now','localtime') WHERE id = ? AND timer_started_at IS NOT NULL",
+        [id]
+      );
+    }
+    // Return updated time_spent so frontend can sync
+    const updated = queryOne<{ time_spent: number }>("SELECT time_spent FROM plan_tasks WHERE id=?", [id]);
+    return NextResponse.json({ ok: true, time_spent: updated?.time_spent || 0 });
   }
 
   const sets: string[] = [];
