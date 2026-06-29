@@ -52,17 +52,48 @@ function looksLikeMath(text: string): boolean {
 const BLOCK_RE = /(\$\$[\s\S]+?\$\$)/g;
 const INLINE_RE = /(\$[^$]+\$)/g;
 
-function tokenize(text: string): Array<{ type: "block" | "inline" | "auto" | "text"; value: string }> {
-  // Strip orphan $ signs (unmatched singles) before processing
-  const dollarCount = (text.match(/\$/g) || []).length;
-  if (dollarCount % 2 !== 0) {
-    // Remove lone $ signs — they're almost certainly AI formatting errors
-    // Find $ not adjacent to another $ and remove the last one
-    const idx = text.lastIndexOf("$");
-    if (idx >= 0) {
-      text = text.slice(0, idx) + text.slice(idx + 1);
+function removeOrphanDollars(text: string): string {
+  // Scan left-to-right, tracking $-state and pairing $ signs.
+  // Remove any $ that cannot be paired with another $.
+  const chars = [...text];
+  const remove = new Set<number>();
+  let i = 0;
+  while (i < chars.length) {
+    if (chars[i] === "$" && chars[i + 1] === "$") {
+      // Display math opener: find closing $
+      let j = i + 2;
+      while (j < chars.length - 1 && !(chars[j] === "$" && chars[j + 1] === "$")) j++;
+      if (j < chars.length - 1) {
+        // Paired $...$
+        i = j + 2;
+      } else {
+        // Unclosed $ — remove both
+        remove.add(i); remove.add(i + 1);
+        i += 2;
+      }
+    } else if (chars[i] === "$") {
+      // Inline math opener: find next $
+      let j = i + 1;
+      while (j < chars.length && chars[j] !== "$") j++;
+      if (j < chars.length) {
+        // Paired $...$
+        i = j + 1;
+      } else {
+        // Unpaired $ — remove it
+        remove.add(i);
+        i++;
+      }
+    } else {
+      i++;
     }
   }
+  if (remove.size === 0) return text;
+  return chars.filter((_, idx) => !remove.has(idx)).join("");
+}
+
+function tokenize(text: string): Array<{ type: "block" | "inline" | "auto" | "text"; value: string }> {
+  // Strip orphan $ signs (unmatched singles) before processing
+  text = removeOrphanDollars(text);
 
   const tokens: Array<{ type: "block" | "inline" | "auto" | "text"; value: string }> = [];
   const parts = text.split(BLOCK_RE);

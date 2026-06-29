@@ -180,11 +180,24 @@ export function sanitizeLatex(text: string): string {
   text = text.replace(/\^\{(\s*)\$([^$]+)\$(\s*)\}/g, "^{$1$2$3}");
   text = text.replace(/_\{(\s*)\$([^$]+)\$(\s*)\}/g, "_{$1$2$3}");
 
-  // 1b. Fix double-wrapped matrix environments: $$\begin{vmatrix}...\end{vmatrix}$$
+  // 1b. Fix double-wrapped matrix environments: $\begin{vmatrix}...\end{vmatrix}$
   //     (display math around an environment that's already math mode) → single $...$
-  text = text.replace(/\$\$(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})\$\$/g, "$$$1$");
+  text = text.replace(/\$\$(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})\$\$/g, "$$1$");
 
-  // 2. Merge adjacent inline blocks: $a$$b$ → $ab$
+  // 1c. Strip stray $ signs INSIDE \begin{...}...\end{...} blocks
+  //     AI sometimes outputs \begin{pmatrix} $a & b$ \\ c & d \end{pmatrix}
+  //     The content is already math mode — any $ inside is a formatting error
+  text = text.replace(
+    /(\\begin\{[^}]+\})([\s\S]*?)(\\end\{[^}]+\})/g,
+    (full, begin, body, end) => {
+      // Remove $/$ inside the body — it's already in math mode
+      body = body.replace(/\$\$/g, "");
+      body = body.replace(/\$/g, "");
+      return begin + body + end;
+    }
+  );
+
+  // 2. Merge adjacent inline blocks: $a$b$ → $ab$
   text = text.replace(/\$(\s*)\$/g, (_, space) => space || " ");
 
   // 3. Merge single-command blocks into following text:
