@@ -31,7 +31,7 @@ function startAutoSave() {
       const sec = getCurrentSeconds();
       _onSave(_taskId, sec);
     }
-  }, 300000); // 5 minutes
+  }, 3900000); // 65 minutes
 }
 
 function triggerSave() {
