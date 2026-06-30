@@ -2,6 +2,10 @@
 
 基于 Next.js 16 的考研错题管理工具，支持拍照上传、AI 识别分类、多解法解析、LaTeX 数学渲染、艾宾浩斯自适应复习。
 
+## 开发规范
+
+- **图标**：禁止使用 emoji，统一使用 `@/lib/icons` 中的 SVG Icon 组件（如 `<IconCheck>`、`<IconFileText>` 等）
+
 ## 当前进度
 
 ### 已完成

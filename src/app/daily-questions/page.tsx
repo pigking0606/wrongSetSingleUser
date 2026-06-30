@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
+import { IconFileText } from "@/lib/icons";
 import type { PdfQuestion } from "@/lib/pdf-export";
 
 interface ChapterNode { id: number; name: string; level: number; }
@@ -139,7 +140,7 @@ export default function DailyQuestionsPage() {
       {questions.length > 0 && (
         <div>
           <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={() => setShowExport(true)}>
-            📄 导出 PDF
+            <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconFileText size={14} /> 导出 PDF</span>
           </button>
           {showExport && (
             <ExportPdfModal

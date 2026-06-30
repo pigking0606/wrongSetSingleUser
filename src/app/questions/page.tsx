@@ -5,6 +5,7 @@ import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { useAuth } from "@/lib/auth-gate";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
+import { IconFileText } from "@/lib/icons";
 import { useModal } from "@/lib/modal";
 
 interface ChapterNode { id: number; name: string; level: number; }
@@ -40,6 +41,8 @@ export default function QuestionsPage() {
   const [shownSolutions, setShownSolutions] = useState<Set<number>>(new Set());
   const [pdfCount, setPdfCount] = useState(20);
   const [showExport, setShowExport] = useState(false);
+  const [exportQuestions, setExportQuestions] = useState<Question[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
   const modal = useModal();
 
   // Edit mode
@@ -247,12 +250,26 @@ export default function QuestionsPage() {
       {/* PDF Export */}
       {questions.length > 0 && (
         <div>
-          <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={() => setShowExport(true)}>
-            📄 导出 PDF
+          <button className="btn btn-primary" style={{ fontSize: ".8rem", padding: ".35rem .8rem" }} onClick={async () => {
+            setExportLoading(true);
+            const p = new URLSearchParams();
+            if (filter.kpId) p.set("chapter_id", String(filter.kpId));
+            else if (filter.chapterId) p.set("chapter_l2_id", String(filter.chapterId));
+            else if (filter.subjectId) p.set("subject_id", String(filter.subjectId));
+            if (dateFrom) p.set("from", dateFrom);
+            if (dateTo) p.set("to", dateTo);
+            p.set("pageSize", "9999");
+            const r = await fetch(`/api/questions?${p.toString()}`);
+            const d = await r.json();
+            setExportQuestions(d.questions || d);
+            setExportLoading(false);
+            setShowExport(true);
+          }} disabled={exportLoading}>
+            {exportLoading ? "加载中..." : <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconFileText size={14} /> 导出 PDF</span>}
           </button>
           {showExport && (
             <ExportPdfModal
-              questions={questions as any[]}
+              questions={(exportQuestions.length > 0 ? exportQuestions : questions) as any[]}
               label={[filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部"}
               defaultTitle={`错题导出 · ${[filter.subjectName, filter.chapterName, filter.kpName, dateFrom, dateTo].filter(Boolean).join("_") || "全部"}`}
               onClose={() => setShowExport(false)}

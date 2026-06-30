@@ -104,7 +104,8 @@ export async function PUT(req: NextRequest) {
   // Timer actions — server computes duration from timestamps, no double-counting
   if (timer_action) {
     if (timer_action === "start") {
-      runAndSave("UPDATE plan_tasks SET timer_started_at=datetime('now','localtime') WHERE id=?", [id]);
+      // Only start if no timer is already running (cross-device guard)
+      runAndSave("UPDATE plan_tasks SET timer_started_at=CASE WHEN timer_started_at IS NULL THEN datetime('now','localtime') ELSE timer_started_at END WHERE id=?", [id]);
     } else if (timer_action === "pause" || timer_action === "stop") {
       runAndSave(
         "UPDATE plan_tasks SET time_spent = time_spent + MAX(0, CAST((julianday('now','localtime') - julianday(timer_started_at)) * 86400 AS INTEGER)), timer_started_at = NULL WHERE id = ? AND timer_started_at IS NOT NULL",

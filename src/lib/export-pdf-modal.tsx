@@ -11,7 +11,7 @@ interface ExportPdfModalProps {
 }
 
 export function ExportPdfModal({ questions, label, defaultTitle, onClose }: ExportPdfModalProps) {
-  const [count, setCount] = useState(Math.min(questions.length, 20));
+  const [count, setCount] = useState(questions.length);
   const [includeAnswers, setIncludeAnswers] = useState(true);
 
   const handleExport = () => {

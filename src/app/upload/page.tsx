@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-import { IconCamera, IconImage } from "@/lib/icons";
+import { IconCamera, IconImage, IconCheck, IconFileText } from "@/lib/icons";
 import { cropImage, rotateImage, compressImage, mergeImagesVertical } from "@/lib/crop-image";
 import { useAuth, AuthGate } from "@/lib/auth-gate";
 
@@ -279,7 +279,7 @@ export default function UploadPage() {
   if (mode === "twoPage" && page1Preview && page1Blob && !page2Preview && !cropping) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>第1页已裁剪 ✓</h1>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>第1页已裁剪 <IconCheck size={14} /></h1>
         <div className="card" style={{ padding: ".5rem", textAlign: "center" }}>
           <img src={page1Preview} alt="第1页" style={{ maxWidth: "100%", maxHeight: "30vh", borderRadius: "6px" }} />
         </div>
@@ -311,7 +311,7 @@ export default function UploadPage() {
   if (mode === "twoPage" && page1Preview && page2Preview && page1Blob && page2Blob) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>两页已裁剪 ✓</h1>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>两页已裁剪 <IconCheck size={14} /></h1>
         <div style={{ display: "flex", gap: ".5rem" }}>
           <div style={{ flex: 1, textAlign: "center" }}>
             <img src={page1Preview} alt="第1页" style={{ maxWidth: "100%", maxHeight: "25vh", borderRadius: "6px" }} />
@@ -422,7 +422,7 @@ export default function UploadPage() {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
         <div className="card" style={{ textAlign: "center", padding: "2rem", background: "var(--green-bg)", color: "var(--green-text)" }}>
-          <div style={{ fontSize: "2rem", marginBottom: ".5rem" }}>✓</div>
+          <div style={{ fontSize: "2rem", marginBottom: ".5rem" }}><IconCheck size={24} /></div>
           <p style={{ fontWeight: 600, margin: 0 }}>题目已保存，AI 正在后台分析</p>
           <p style={{ fontSize: ".8rem", marginTop: ".5rem", opacity: 0.8 }}>分析完成后自动入库，可在题库中查看</p>
           <div style={{ display: "flex", gap: ".75rem", justifyContent: "center", marginTop: "1rem" }}>
@@ -479,7 +479,7 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "multiCrop" ? "多题框选 ✓" : "多题框选"}
+          {mode === "multiCrop" ? "多题框选 <IconCheck size={14} />" : "多题框选"}
         </button>
         {/* Two-page toggle */}
         <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
@@ -500,7 +500,7 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "twoPage" ? "双页合成 ✓" : "双页合成"}
+          {mode === "twoPage" ? "双页合成 <IconCheck size={14} />" : "双页合成"}
         </button>
       </div>
       {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}

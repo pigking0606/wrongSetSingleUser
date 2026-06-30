@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   IconFlame, IconChart, IconTrending, IconPencil, IconSparkle,
   IconCalendar, IconClipboard, IconTarget, IconStar, IconStarEmpty,
-  IconChevronLeft, IconChevronRight, IconPlus, IconX,
+  IconChevronLeft, IconChevronRight, IconPlus, IconX, IconCheck, IconAlert,
 } from "@/lib/icons";
 import { useGlobalTimer, StudyFullscreen } from "@/lib/study-timer";
 import { useAuth } from "@/lib/auth-gate";
@@ -61,17 +61,19 @@ export default function PlanPage() {
   const [suggestedTasks, setSuggestedTasks] = useState<Array<{title: string; chapter_id: number|null; description: string; difficulty: number; adopted: boolean}>>([]);
   const [adoptingIdx, setAdoptingIdx] = useState<number | null>(null);
   const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0 });
-  const [feedback, setFeedback] = useState(""); // toast message
+  const [feedback, setFeedback] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">("success");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Prevent double-submit
   const addingRef = useRef(false);
 
   // Show feedback toast — clears previous before showing new one
-  const toast = (msg: string) => {
+  const toast = (msg: string, type?: "success" | "error", duration?: number) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastType(type || "success");
     setFeedback(msg);
-    toastTimer.current = setTimeout(() => setFeedback(""), 3000);
+    toastTimer.current = setTimeout(() => setFeedback(""), duration || 3000);
   };
 
   // Timer state — one active timer at a time, persists across page navigation
@@ -208,9 +210,9 @@ export default function PlanPage() {
     setSaving(true);
     try {
       const res = await fetch("/api/daily-summaries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ summary_date: curDate, content: summary }) });
-      if (!res.ok) { const d = await res.json(); toast(d.error || "小结保存失败"); setSaving(false); return; }
-      toast("小结已保存");
-    } catch { toast("小结保存失败"); }
+      if (!res.ok) { const d = await res.json(); toast(d.error || "小结保存失败", "error", 5000); setSaving(false); return; }
+      toast("小结已保存", "success", 5000);
+    } catch { toast("小结保存失败", "error", 5000); }
     setSaving(false);
   };
 
@@ -263,6 +265,8 @@ export default function PlanPage() {
     try {
       await fetch("/api/plan-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task_date: curDate, title: t.title, chapter_id: t.chapter_id, description: t.description, difficulty: t.difficulty }) });
       setSuggestedTasks(prev => prev.map((s, i) => i === idx ? { ...s, adopted: true } : s));
+      await loadTasks(curDate);
+      loadStats();
       toast("已添加到今日计划");
     } catch { toast("采纳失败"); }
     setAdoptingIdx(null);
@@ -281,7 +285,9 @@ export default function PlanPage() {
       {/* Toast feedback */}
       {feedback && (
         <div style={{
-          textAlign: "center", fontSize: ".8rem", color: "var(--green-text)", background: "var(--green-bg)",
+          textAlign: "center", fontSize: ".8rem",
+          color: toastType === "error" ? "var(--red-text)" : "var(--green-text)",
+          background: toastType === "error" ? "var(--red-bg)" : "var(--green-bg)",
           padding: ".4rem .75rem", borderRadius: "6px", transition: "opacity .3s",
         }}>{feedback}</div>
       )}
@@ -312,7 +318,7 @@ export default function PlanPage() {
           background: "var(--yellow-bg)", color: "var(--yellow-text)",
           fontSize: ".8rem", lineHeight: 1.5, display: "flex", alignItems: "flex-start", gap: ".5rem",
         }}>
-          <span style={{ fontSize: "1rem", flexShrink: 0 }}>!</span>
+          <span style={{ fontSize: "1rem", flexShrink: 0 }}><IconAlert size={14} /></span>
           <div>
             <span style={{ fontWeight: 600 }}>昨日未完成：</span>
             {yesterdayIncomplete.map((t, i) => (

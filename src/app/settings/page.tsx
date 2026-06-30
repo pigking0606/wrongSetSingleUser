@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { IconEye, IconSparkle } from "@/lib/icons";
+import { IconEye, IconSparkle, IconCheck } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -101,7 +101,7 @@ export default function SettingsPage() {
       </div>
 
       {authed && <button className="btn btn-primary" onClick={save} style={{ alignSelf: "flex-start", padding: ".6rem 1.5rem" }}>
-        {saved ? "✓ 已保存到服务器" : "保存设置"}
+        {saved ? <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconCheck size={14} /> 已保存到服务器</span> : "保存设置"}
       </button>}
       <p style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>
         输入口令后可修改设置。
