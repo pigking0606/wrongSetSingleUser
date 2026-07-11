@@ -15,6 +15,8 @@ export default function SettingsPage() {
   const [textKey, setTextKey] = useState("");
   const [textModel, setTextModel] = useState("");
   const [textUrl, setTextUrl] = useState("");
+  const [banks, setBanks] = useState<{id:number;name:string}[]>([]);
+  const [newBankName, setNewBankName] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 

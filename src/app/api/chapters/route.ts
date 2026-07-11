@@ -5,6 +5,11 @@ import { initSchema } from "@/lib/schema";
 export async function GET(req: NextRequest) {
   await initSchema();
   const { searchParams } = new URL(req.url);
+  const banks = searchParams.get("banks");
+  if (banks) {
+    const rows = queryAll("SELECT id, name FROM banks ORDER BY id");
+    return NextResponse.json({ banks: rows });
+  }
   const level = searchParams.get("level");
   const parentId = searchParams.get("parent_id");
   const tree = searchParams.get("tree");
