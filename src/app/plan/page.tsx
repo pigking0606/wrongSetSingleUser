@@ -493,8 +493,8 @@ export default function PlanPage() {
                       <button className="btn" onClick={async () => { await fetch('/api/plan-tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id, timer_action: "start" }) }); globalTimer.start(t.time_spent || 0); globalTimer.setTask(t.id, t.title); }}
                         disabled={timer.taskId !== null || pct >= 100}
                         style={{ fontSize: ".7rem", padding: ".15rem .5rem", opacity: (timer.taskId !== null || pct >= 100) ? 0.4 : 1 }}>
-                        {pct >= 100 ? `已完成 ${t.time_spent > 0 ? `${Math.floor(t.time_spent/60)}分` : ""}` : `开始计时${t.time_spent > 0 ? ` (总计${Math.floor(t.time_spent/60)}分)` : ""}`
-                        {isToday && t.time_spent > 0 && <button onClick={(e)=>{e.stopPropagation();setEditTimeId(t.id);setEditTimeVal(String(Math.floor(t.time_spent/60)));}} style={{color:"var(--text-muted)",background:"none",border:"none",cursor:"pointer",padding:"0 .2rem"}} title="修改计时"><IconPencil size={12}/></button>}}
+                        {pct >= 100 ? `已完成 ${t.time_spent > 0 ? `${Math.floor(t.time_spent/60)}分` : ""}` : `开始计时${t.time_spent > 0 ? ` (总计${Math.floor(t.time_spent/60)}分)` : ""}`}
+                        {isToday && t.time_spent > 0 && <button onClick={(e)=>{e.stopPropagation();setEditTimeId(t.id);setEditTimeVal(String(Math.floor(t.time_spent/60)));}} style={{color:"var(--text-muted)",background:"none",border:"none",cursor:"pointer",padding:"0 .2rem"}} title="修改计时"><IconPencil size={12}/></button>}
                       </button>
                     )}
                   </div>
