@@ -58,7 +58,13 @@ function buildTree(rows: { id: number; name: string; parent_id: number | null; l
 
 export async function POST(req: NextRequest) {
   await initSchema();
-  const { name, parent_id, sort_order } = await req.json();
+  const { name, parent_id, sort_order, bankName } = await req.json();
+
+  // Bank creation
+  if (bankName?.trim()) {
+    runAndSave("INSERT INTO banks (name) VALUES (?)", [bankName.trim()]);
+    return NextResponse.json({ ok: true });
+  }
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "名称不能为空" }, { status: 400 });
@@ -133,6 +139,13 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await initSchema();
+  const body = await req.json().catch(() => ({}));
+  // Bank deletion via JSON body
+  if (body.bankId) {
+    runAndSave("DELETE FROM banks WHERE id=?", [body.bankId]);
+    return NextResponse.json({ ok: true });
+  }
+  // Chapter deletion via query param
   const { searchParams } = new URL(req.url);
   const id = parseInt(searchParams.get("id") || "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
