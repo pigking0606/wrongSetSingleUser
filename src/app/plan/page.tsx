@@ -60,7 +60,7 @@ export default function PlanPage() {
   const [aiReason, setAiReason] = useState("");
   const [suggestedTasks, setSuggestedTasks] = useState<Array<{title: string; chapter_id: number|null; description: string; difficulty: number; adopted: boolean}>>([]);
   const [adoptingIdx, setAdoptingIdx] = useState<number | null>(null);
-  const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0 });
+  const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0, todayMinutes: 0 });
   const [feedback, setFeedback] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,6 +82,8 @@ export default function PlanPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [editTimeId, setEditTimeId] = useState<number | null>(null);
+  const [editTimeVal, setEditTimeVal] = useState("");
 
   const [progress, setProgress] = useState("");
   const [progressUpdated, setProgressUpdated] = useState("");
@@ -131,14 +133,15 @@ export default function PlanPage() {
       const all: PlanTask[] = ((await res.json()).tasks || []);
       const avgPct = all.length > 0 ? Math.round(all.reduce((s, t) => s + (t.completion_pct || 0), 0) / all.length) : 0;
       const avgDiff = all.length > 0 ? Math.round(all.reduce((s, t) => s + (t.difficulty || 3), 0) / all.length * 10) / 10 : 0;
+      // Streak: consecutive past days (including today) with any tasks
       let streak = 0, d = today();
       while (true) {
         const dayTasks = all.filter(t => t.task_date === d);
         if (dayTasks.length === 0) break;
-        if (dayTasks.every(t => (t.completion_pct || 0) >= 100)) { streak++; d = addDays(d, -1); }
-        else break;
+        streak++; d = addDays(d, -1);
       }
-      setStats({ streak, totalTasks: all.length, avgPct, avgDifficulty: avgDiff });
+      const todayMinutes = all.filter(t=>t.task_date===today()).reduce((s,t)=>s+(t.time_spent||0),0);
+      setStats({ streak, totalTasks: all.length, avgPct, avgDifficulty: avgDiff, todayMinutes: Math.floor(todayMinutes/60) });
     } catch { /* */ }
   }, []);
 
@@ -191,6 +194,14 @@ export default function PlanPage() {
   };
 
   const deleteTask = async (id: number) => { await fetch(`/api/plan-tasks?id=${id}`, { method: "DELETE" }); loadTasks(curDate); loadStats(); toast("任务已删除"); };
+
+  const saveTime = async (id: number, minutes: number) => {
+    await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, time_spent: minutes * 60 }) });
+    setEditTimeId(null);
+    await loadTasks(curDate);
+    loadStats();
+    toast("计时已更新");
+  };
 
   const saveEdit = async () => {
     if (!editingId || !editTitle.trim()) return;
@@ -438,6 +449,16 @@ export default function PlanPage() {
                     {[1,2,3,4,5].map(i => i <= diff ? <IconStar key={i} size={12} /> : <IconStarEmpty key={i} size={12} />)}
                   </span>
                 </div>
+                {editTimeId === t.id && (
+                  <div style={{ display: "flex", alignItems: "center", gap: ".4rem", borderTop: "1px solid var(--border)", paddingTop: ".4rem" }}>
+                    <span style={{ fontSize: ".75rem" }}>修改计时(分)：</span>
+                    <input type="number" value={editTimeVal} onChange={e=>setEditTimeVal(e.target.value)}
+                      style={{ width: "60px", fontSize: ".8rem", textAlign: "center" }}
+                      onKeyDown={e=>{if(e.key==="Enter")saveTime(t.id,parseInt(editTimeVal)||0)}} autoFocus />
+                    <button className="btn btn-primary" style={{ fontSize: ".7rem", padding: ".15rem .4rem" }} onClick={()=>saveTime(t.id,parseInt(editTimeVal)||0)}>保存</button>
+                    <button className="btn" style={{ fontSize: ".7rem", padding: ".15rem .4rem" }} onClick={()=>setEditTimeId(null)}>取消</button>
+                  </div>
+                )}
                 {/* Timer row */}
                 {isToday && authed && (
                   <div style={{ display: "flex", alignItems: "center", gap: ".4rem", borderTop: "1px solid var(--border)", paddingTop: ".4rem", marginTop: ".1rem" }}>

@@ -33,9 +33,11 @@ export async function POST(req: NextRequest) {
     const lastUpdate = queryOne<{ updated_at: string }>(
       "SELECT updated_at FROM learning_progress WHERE id=1"
     );
-    const sinceDate = lastUpdate?.updated_at
-      ? lastUpdate.updated_at.slice(0, 10)  // "YYYY-MM-DD" from "YYYY-MM-DD HH:MM:SS"
+    // Take the EARLIER date so we cover everything since last update
+    const lastUpdateDate = lastUpdate?.updated_at
+      ? lastUpdate.updated_at.slice(0, 10)
       : summaryDate;
+    const sinceDate = lastUpdateDate < summaryDate ? lastUpdateDate : summaryDate;
 
     const summaries = queryAll<{ summary_date: string; content: string }>(
       "SELECT summary_date, content FROM daily_summaries WHERE summary_date >= ? ORDER BY summary_date",
