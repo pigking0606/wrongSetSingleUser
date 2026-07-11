@@ -4,6 +4,14 @@ export async function initSchema() {
   const db = await getDb();
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS banks
+      (id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name TEXT NOT NULL,
+       created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS chapters (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
