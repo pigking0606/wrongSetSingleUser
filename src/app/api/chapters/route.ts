@@ -139,7 +139,8 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await initSchema();
-  const body = await req.json().catch(() => ({}));
+  let body: any = {};
+  try { body = await req.json(); } catch { /* no body */ }
   // Bank deletion via JSON body
   if (body.bankId) {
     runAndSave("DELETE FROM banks WHERE id=?", [body.bankId]);
