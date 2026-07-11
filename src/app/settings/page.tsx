@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)}).catch(()=>{});
     fetch("/api/settings").then(r => r.json()).then(d => {
       setVisionKey(d.visionKey || "");
       setVisionModel(d.visionModel || "qwen-vl-plus");
@@ -110,6 +111,34 @@ export default function SettingsPage() {
       </p>
 
       <Link href="/" style={{ fontSize: ".875rem", color: "var(--text-muted)", textDecoration: "none" }}>← 返回首页</Link>
+    {/* 题库管理 */}
+    {authed && <div className="card" style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
+      <h2 style={{ fontSize: ".95rem", fontWeight: 600 }}>题库管理</h2>
+      {banks.map(b => (
+        <div key={b.id} style={{ display: "flex", alignItems: "center", gap: ".5rem", fontSize: ".85rem" }}>
+          <span style={{ flex: 1 }}>{b.name}</span>
+          <button className="btn" style={{ fontSize: ".7rem", color: "var(--red-text)" }}
+            onClick={async () => {
+              if (!await modal.confirm("删除题库", "确定删除题库「" + b.name + "」？")) return;
+              await fetch("/api/chapters", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankId: b.id }) });
+              fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)});
+            }} >删除</button>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: ".5rem" }}>
+        <input value={newBankName} onChange={e=>setNewBankName(e.target.value)} placeholder="新题库名称"
+          style={{ flex: 1, fontSize: ".85rem" }} />
+        <button className="btn btn-primary" style={{ fontSize: ".8rem" }}
+          onClick={async () => {
+            if (!newBankName.trim()) return;
+            const r = await fetch("/api/chapters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankName: newBankName.trim() }) });
+            if (r.ok) { setNewBankName(""); fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)}); }
+          }} >添加题库</button>
+      </div>
+    </div>}
+
+    <Link href="/" style={{ fontSize: ".875rem", color: "var(--text-muted)", textDecoration: "none" }}>← 返回首页</Link>
     </div>
   );
 }
+

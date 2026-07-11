@@ -56,6 +56,8 @@ export default function UploadPage() {
   const [multiState, setMultiState] = useState<PageState>("idle");
   const [multiCrops, setMultiCrops] = useState<{blob: Blob; preview: string}[]>([]);
 
+  useEffect(() => { fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)}).catch(()=>{}); }, []);
+
   // ---- File handling ----
   const handleFile = useCallback((f: File) => {
     if (!f.type.startsWith("image/")) {
