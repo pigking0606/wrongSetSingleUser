@@ -13,6 +13,8 @@ type UploadMode = "single" | "twoPage" | "multiCrop";
 
 export default function UploadPage() {
   const { authed, login } = useAuth();
+  const [bankId, setBankId] = useState<number>(1);
+  const [banks, setBanks] = useState<{id:number;name:string}[]>([]);
   const [state, setState] = useState<PageState>("idle");
   const [userAnswer, setUserAnswer] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -150,7 +152,7 @@ export default function UploadPage() {
         for (let i = 0; i < multiCrops.length; i++) {
           const comp = await compressImage(multiCrops[i].blob, 2048);
           const fd = new FormData();
-          fd.append("image", comp, originalFile?.name || "upload.jpg");
+          fd.append("image", comp, originalFile?.name || "upload.jpg"); fd.append("bank_id", String(bankId));
           if (userAnswer.trim()) fd.append("user_answer", userAnswer.trim());
           const r = await fetch("/api/upload", { method: "POST", body: fd });
           if (!r.ok) { setErrorMsg(`第${i+1}题上传失败`); setState("error"); return; }
@@ -439,7 +441,10 @@ export default function UploadPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: ".75rem" }}>
-        <h1 style={{ fontSize: "1.25rem", fontWeight: 700, flex: 1 }}>上传错题</h1>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>上传错题</h1>
+        <select value={bankId} onChange={e=>setBankId(parseInt(e.target.value))} style={{fontSize:".75rem"}}>
+          {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
         {/* Single page: exit any special mode */}
         {(mode !== "single") && (
           <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {

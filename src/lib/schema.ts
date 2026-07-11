@@ -123,7 +123,10 @@ export async function initSchema() {
     "ALTER TABLE plan_tasks ADD COLUMN timer_started_at TEXT",
     "ALTER TABLE plan_tasks ADD COLUMN external_id TEXT",
     "ALTER TABLE questions ADD COLUMN external_id TEXT",
+    "ALTER TABLE questions ADD COLUMN bank_id INTEGER DEFAULT 1",
   ];
+  // Insert default bank if not exists
+  try { db.run("INSERT INTO banks (id, name) SELECT 1, '默认题库' WHERE NOT EXISTS (SELECT 1 FROM banks WHERE id=1)"); } catch { /* */ }
   // Create index for external_id lookups
   try { db.run("CREATE INDEX IF NOT EXISTS idx_plan_tasks_external ON plan_tasks(external_id)"); } catch { /* */ }
   try { db.run("CREATE INDEX IF NOT EXISTS idx_questions_external ON questions(external_id)"); } catch { /* */ }

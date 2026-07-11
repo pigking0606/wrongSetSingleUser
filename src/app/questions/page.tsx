@@ -24,6 +24,8 @@ const QUESTION_TYPES = ["single_choice", "multiple_choice", "true_false", "fill_
 
 export default function QuestionsPage() {
   const { authed, login } = useAuth();
+  const [banks, setBanks] = useState<{id:number;name:string}[]>([]);
+  const [bankId, setBankId] = useState<number | null>(null);
   const [subjects, setSubjects] = useState<ChapterNode[]>([]);
   const [chapters, setChapters] = useState<ChapterNode[]>([]);
   const [kps, setKps] = useState<ChapterNode[]>([]);
@@ -217,7 +219,12 @@ export default function QuestionsPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>题库浏览</h1>
+      <h1 style={{ fontSize: "1.25rem", fontWeight: 700, flex: 1 }}>题库浏览</h1>
+        <select value={bankId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setBankId(v); setPage(0); }}
+          style={{ fontSize: ".8rem", padding: ".2rem .4rem" }}>
+          <option value={""}>全部题库</option>
+          {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
 
       {/* Filters */}
       <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -255,7 +262,8 @@ export default function QuestionsPage() {
             const p = new URLSearchParams();
             if (filter.kpId) p.set("chapter_id", String(filter.kpId));
             else if (filter.chapterId) p.set("chapter_l2_id", String(filter.chapterId));
-            else if (filter.subjectId) p.set("subject_id", String(filter.subjectId));
+            else if (bankId) p.set("bank_id", String(bankId));
+            if (filter.subjectId) p.set("subject_id", String(filter.subjectId));
             if (dateFrom) p.set("from", dateFrom);
             if (dateTo) p.set("to", dateTo);
             p.set("pageSize", "9999");

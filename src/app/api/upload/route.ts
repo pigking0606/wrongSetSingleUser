@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const image = formData.get("image") as File | null;
     const userAnswer = (formData.get("user_answer") as string) || undefined;
+    const bankId = parseInt(formData.get("bank_id") as string || "1") || 1;
 
     if (!image) {
       return NextResponse.json({ error: "未提供图片" }, { status: 400 });
@@ -34,9 +35,9 @@ export async function POST(req: NextRequest) {
     publicUrl = saved.publicUrl;
 
     runAndSave(
-      `INSERT INTO questions (chapter_id, image_path, ocr_text, question_type, correct_answer, explanation, ai_solutions, user_answer, status, original_filename)
+      `INSERT INTO questions (chapter_id, image_path, ocr_text, question_type, correct_answer, explanation, ai_solutions, user_answer, bank_id, status, original_filename)
        VALUES (1, ?, '', 'pending', '', '', '[]', ?, 'pending', ?)`,
-      [publicUrl, userAnswer || null, image.name || null]
+      [publicUrl, userAnswer || null, bankId, image.name || null]
     );
 
     const row = queryOne<{ id: number }>("SELECT MAX(id) as id FROM questions");

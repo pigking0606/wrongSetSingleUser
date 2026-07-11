@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   }
 
   const chapterId = searchParams.get("chapter_id");
+  const bankId = searchParams.get("bank_id");
   const subjectId = searchParams.get("subject_id");
   const chapterL2Id = searchParams.get("chapter_l2_id");
   const dateFrom = searchParams.get("from");

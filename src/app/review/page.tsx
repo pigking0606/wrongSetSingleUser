@@ -31,6 +31,8 @@ export default function ReviewPage() {
   const [showImage, setShowImage] = useState(false);
   const [answered, setAnswered] = useState(false);
 
+  const [banks, setBanks] = useState<{id:number;name:string}[]>([]);
+  const [bankId, setBankId] = useState<number | null>(null);
   const [subjects, setSubjects] = useState<ChapterNode[]>([]);
   const [chapters, setChapters] = useState<ChapterNode[]>([]);
   const [kps, setKps] = useState<ChapterNode[]>([]);
@@ -55,6 +57,7 @@ export default function ReviewPage() {
   const fetchQuestions = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams(); params.set("limit", String(questionLimit));
+    if (bankId) params.set("bank_id", String(bankId));
     if (subjectId) params.set("subject_id", String(subjectId));
     if (chapterL2Id) params.set("chapter_l2_id", String(chapterL2Id));
     if (kpId) params.set("chapter_id", String(kpId));
@@ -81,6 +84,11 @@ export default function ReviewPage() {
 
   const filterBar = (
     <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center" }}>
+      <select value={bankId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setBankId(v); }}
+        style={{ fontSize: ".8rem", padding: ".2rem .4rem" }}>
+        <option value={""}>全部题库</option>
+        {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
       <select value={subjectId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setSubjectId(v); setChapterL2Id(null); setKpId(null); }}>
         <option value="">全部科目</option>
         {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
