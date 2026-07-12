@@ -22,7 +22,7 @@ async function getTextApiUrl() {
 export async function POST(req: NextRequest) {
   await initSchema();
   const { content, mode, summaryDate } = await req.json();
-  const apiKey = loadSetting("text_key", "DEEPSEEK_API_KEY") || loadSetting("vision_key", "DASHSCOPE_API_KEY");
+  const apiKey = await loadSetting("text_key", "DEEPSEEK_API_KEY") || await loadSetting("vision_key", "DASHSCOPE_API_KEY");
   if (!apiKey) return NextResponse.json({ error: "API key 未配置" }, { status: 500 });
 
   // mode: "optimize" = polish existing text, "update" = update based on daily summary
@@ -88,8 +88,8 @@ ${content || "暂无"}
   try {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 20000);
-    const model = loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
-    const resp = await fetch(getTextApiUrl(), {
+    const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
+    const resp = await fetch(await getTextApiUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({

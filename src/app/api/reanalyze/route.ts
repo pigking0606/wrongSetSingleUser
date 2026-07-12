@@ -6,7 +6,7 @@ import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex, fixLatexWithAI } from "@/lib/ai";
 
 import { decrypt } from "@/lib/crypto-utils";
-async function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = "") {
   try {
     const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
@@ -14,8 +14,8 @@ async function loadSetting(key: string, envFallback = ""): string {
   return process.env[envFallback] || "";
 }
 
-async function getReanalyzeUrl(model: string, isText: boolean): string {
-  const custom = loadSetting(isText ? "text_url" : "vision_url");
+async function getReanalyzeUrl(model: string, isText: boolean) {
+  const custom = await loadSetting(isText ? "text_url" : "vision_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
   if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
@@ -106,11 +106,11 @@ async function processReanalyze(
     }
 
     const rModel = answerOnly
-      ? (loadSetting("text_model", "TEXT_MODEL") || "qwen-plus")
-      : (loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus");
+      ? (await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus")
+      : (await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus");
     const rApiKey = rModel.startsWith("deepseek")
-      ? (loadSetting("text_key", "DEEPSEEK_API_KEY") || apiKey)
-      : (loadSetting("vision_key", "DASHSCOPE_API_KEY") || apiKey);
+      ? (await loadSetting("text_key", "DEEPSEEK_API_KEY") || apiKey)
+      : (await loadSetting("vision_key", "DASHSCOPE_API_KEY") || apiKey);
     const rBody: any = { model: rModel, max_tokens: 8192, temperature: 0, messages: [systemMsg, userMsg] };
     if (!rModel.startsWith("deepseek")) rBody.response_format = { type: "json_object" };
 
@@ -119,7 +119,7 @@ async function processReanalyze(
 
     let resp: any;
     try {
-      resp = await fetch(getReanalyzeUrl(rModel, answerOnly), {
+      resp = await fetch(await getReanalyzeUrl(rModel, answerOnly), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${rApiKey}` },
         body: JSON.stringify(rBody),
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
   );
   if (!q) return NextResponse.json({ error: "question not found" }, { status: 404 });
 
-  const apiKey = loadSetting("vision_key", "DASHSCOPE_API_KEY") || loadSetting("text_key", "DEEPSEEK_API_KEY");
+  const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY") || await loadSetting("text_key", "DEEPSEEK_API_KEY");
   if (!apiKey) return NextResponse.json({ error: "API key 未配置" }, { status: 500 });
 
   // Set status to pending, clear old error_reason

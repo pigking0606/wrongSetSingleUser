@@ -3,19 +3,19 @@ import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { encrypt, decrypt } from "@/lib/crypto-utils";
 
-async function getRaw(key: string, envFallback = ""): string {
+async function getRaw(key: string, envFallback = "") {
   const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
   if (row?.value) return row.value;
   return process.env[envFallback] || "";
 }
 
 // For API keys: decrypt from DB
-async function getKey(key: string, envFallback = ""): string {
+async function getKey(key: string, envFallback = "") {
   return decrypt(await getRaw(key, envFallback));
 }
 
 // For non-sensitive values: return as-is
-async function getPlain(key: string, envFallback = ""): string {
+async function getPlain(key: string, envFallback = "") {
   return await getRaw(key, envFallback);
 }
 

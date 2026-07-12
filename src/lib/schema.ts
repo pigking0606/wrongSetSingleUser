@@ -55,7 +55,7 @@ export async function initSchema() {
   ];
 
   for (const sql of tables) {
-    try { await db.execute(sql); } catch(e) { console.error("table create error:", e.message); }
+    try { await db.execute(sql); } catch(e) { console.error("table create error:", (e as Error).message); }
   }
 
   await db.execute("INSERT IGNORE INTO learning_progress (id, content) VALUES (1, '')");

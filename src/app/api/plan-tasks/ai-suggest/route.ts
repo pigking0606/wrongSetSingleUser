@@ -3,7 +3,7 @@ import { queryAll, queryOne } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto-utils";
 
-async function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = "") {
   try {
     const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
@@ -11,10 +11,10 @@ async function loadSetting(key: string, envFallback = ""): string {
   return process.env[envFallback] || "";
 }
 
-function getTextApiUrl(): string {
-  const custom = loadSetting("text_url");
+async function getTextApiUrl() {
+  const custom = await loadSetting("text_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
-  const model = loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
+  const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
   if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     .map(c => `${c.id}:${c.name}`)
     .join(", ");
 
-  const apiKey = loadSetting("text_key", "DEEPSEEK_API_KEY") || loadSetting("vision_key", "DASHSCOPE_API_KEY");
+  const apiKey = await loadSetting("text_key", "DEEPSEEK_API_KEY") || await loadSetting("vision_key", "DASHSCOPE_API_KEY");
   if (!apiKey) {
     return NextResponse.json({ error: "API key 未配置" }, { status: 500 });
   }
@@ -144,8 +144,8 @@ JSON格式：
   "reason": "简短说明建议理由"
 }`;
 
-    const model = loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
-    const resp = await fetch(getTextApiUrl(), {
+    const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
+    const resp = await fetch(await getTextApiUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({

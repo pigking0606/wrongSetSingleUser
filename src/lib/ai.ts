@@ -41,7 +41,7 @@ const INLINE_RE = /(\$[^$]+\$)/g;
 // Uses backreference \2 to ensure begin/end environment names match
 const ENV_BLOCK = /(\\begin\{([^}]+)\}[\s\S]*?\\end\{\2\})/g;
 
-export function autoWrapMathDelimiters(text: string): string {
+export function autoWrapMathDelimiters(text: string) {
   if (!text) return text;
 
   // Step 1: split by display math blocks ($$...$$), preserve them untouched
@@ -81,7 +81,7 @@ export function autoWrapMathDelimiters(text: string): string {
 // Get settings from DB (with env fallback), auto-decrypt encrypted values
 import { queryOne } from "@/lib/db";
 import { decrypt } from "@/lib/crypto-utils";
-async function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = "") {
   try {
     const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
@@ -90,14 +90,14 @@ async function loadSetting(key: string, envFallback = ""): string {
 }
 
 // Pick API endpoint based on model or DB setting
-function getApiUrl(model: string, settingKey: string): string {
-  const custom = loadSetting(settingKey);
+async function getApiUrl(model: string, settingKey: string) {
+  const custom = await loadSetting(settingKey);
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
   if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
-function getVisionUrl(): string {
-  const custom = loadSetting("vision_url");
+async function getVisionUrl() {
+  const custom = await loadSetting("vision_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
@@ -113,12 +113,12 @@ const DEDUP_PROMPT = `你是一个文本精简助手。输入一段AI生成的�
 4. 绝不新增任何内容
 5. 直接返回精简后的文本，不要解释`;
 
-function getTextApiKey(): string {
-  return loadSetting("text_key", "DEEPSEEK_API_KEY") || loadSetting("vision_key", "DASHSCOPE_API_KEY") || "";
+async function getTextApiKey() {
+  return await loadSetting("text_key", "DEEPSEEK_API_KEY") || await loadSetting("vision_key", "DASHSCOPE_API_KEY") || "";
 }
 
 async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Promise<Record<string, string>> {
-  const apiKey = getTextApiKey();
+  const apiKey = await getTextApiKey();
   if (!apiKey) return texts;
   const entries = Object.entries(texts).filter(([, v]) => v && v.length > 30);
   if (entries.length === 0) return texts;
@@ -126,7 +126,7 @@ async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Prom
   try {
     const dedupModel = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
     const resp = await fetch(
-      getApiUrl(dedupModel, "text_url"),
+      await getApiUrl(dedupModel, "text_url"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -173,7 +173,7 @@ async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<vo
 // Layer 3: Post-process — fix common AI LaTeX mistakes that survived this far
 // ---------------------------------------------------------------------------
 
-export function sanitizeLatex(text: string): string {
+export function sanitizeLatex(text: string) {
   if (!text) return text;
 
   // 1. Strip $ inside ^{$...$} and _{$...$} — AI wrongly nests math blocks
@@ -216,7 +216,7 @@ export function sanitizeLatex(text: string): string {
   return text;
 }
 
-function fixLatexEscapes(raw: string): string {
+function fixLatexEscapes(raw: string) {
   // Replace single \ followed by 2+ letters with \\ (LaTeX commands like \frac, \lim).
   // Single-letter \ escapes (\n, \t, \r, \b, \f) are JSON escapes — leave them alone.
   return raw.replace(/(?<!\\)\\([a-zA-Z]{2,})/g, "\\\\$1");
@@ -318,7 +318,7 @@ export async function fixLatexWithAI(
   texts: Record<string, string>,
   _apiKey: string
 ): Promise<Record<string, string>> {
-  const apiKey = getTextApiKey();
+  const apiKey = await getTextApiKey();
   if (!apiKey) return texts;
 
   const entries = Object.entries(texts);
@@ -329,9 +329,9 @@ export async function fixLatexWithAI(
   const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
-    const ltxModel = loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+    const ltxModel = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
     const resp = await fetch(
-      getApiUrl(ltxModel, "text_url"),
+      await getApiUrl(ltxModel, "text_url"),
       {
         method: "POST",
         headers: {
@@ -413,14 +413,14 @@ async function realAnalyze(
   userAnswer?: string
 ): Promise<AiAnalysisResult> {
   const systemPrompt = buildSystemPrompt(chapterTree);
-  const apiKey = loadSetting("vision_key", "DASHSCOPE_API_KEY");
+  const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180000);
 
   try {
     const resp = await fetch(
-      getVisionUrl(),
+      await getVisionUrl(),
       {
         method: "POST",
         headers: {
@@ -428,7 +428,7 @@ async function realAnalyze(
           Authorization: `Bearer ${apiKey!}`,
         },
         body: JSON.stringify({
-          model: loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
+          model: await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
           max_tokens: 8192,
           response_format: { type: "json_object" },
           temperature: 0,
@@ -581,7 +581,7 @@ export async function analyzeWrongAnswerImage(
   chapterTree: ChapterRow[],
   userAnswer?: string
 ): Promise<AiAnalysisResult> {
-  if (!loadSetting("vision_key", "DASHSCOPE_API_KEY") && !loadSetting("text_key", "DEEPSEEK_API_KEY")) {
+  if (!await loadSetting("vision_key", "DASHSCOPE_API_KEY") && !await loadSetting("text_key", "DEEPSEEK_API_KEY")) {
     throw new AiApiError("API key 未配置，请在设置页面填写", 500);
   }
   return realAnalyze(imageBase64, mimeType, chapterTree, userAnswer);
