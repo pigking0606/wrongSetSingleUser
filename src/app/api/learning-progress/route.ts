@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
   runAndSave(
-    "UPDATE learning_progress SET content=?, updated_at=datetime('now','localtime') WHERE id=1",
+    "UPDATE learning_progress SET content=?, updated_at=NOW() WHERE id=1",
     [content || ""]
   );
   return NextResponse.json({ ok: true });

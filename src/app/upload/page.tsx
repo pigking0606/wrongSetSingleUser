@@ -486,7 +486,7 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "multiCrop" ? "多题框选 <IconCheck size={14} />" : "多题框选"}
+          {mode === "multiCrop" ? <span>多题框选 <IconCheck size={14} /></span> : "多题框选"}
         </button>
         {/* Two-page toggle */}
         <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
@@ -507,7 +507,7 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "twoPage" ? "双页合成 <IconCheck size={14} />" : "双页合成"}
+          {mode === "twoPage" ? <span>双页合成 <IconCheck size={14} /></span> : "双页合成"}
         </button>
       </div>
       {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
