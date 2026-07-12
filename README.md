@@ -343,7 +343,7 @@ mysql -uwrongset -pwrongset123 -P6603 wrongset
 后端（3 个 API 500 错误根因修复）：
 1. **`/api/questions?pageSize=` 500** — `LIMIT ? OFFSET ?` 在 mysql2 `pool.execute()` 预处理语句中抛 `ER_WRONG_ARGUMENTS 1210`。改为内联整数字面量（`parseInt` 已防注入），并简化 count 查询参数（params 不再含 LIMIT/OFFSET）。
 2. **`/api/review?limit=` 500** — 同一 `LIMIT ?` 根因。同时修复参数顺序 bug：原 `[today, ...conditions, today, limit]` 与 SQL `?` 顺序 `[today, today, ...conditions, limit]` 不匹配（有筛选条件时参数错位）。改为 `[today, today, ...conditions]` + 内联 LIMIT。
-3. **`/api/daily-summaries?recent=` 500** — 同一 `LIMIT ?` 根因（新发现，原 README 未记录）。改为内联整数字面量。
+3. **`/api/daily-summaries?recent=` 500** — 同一 `LIMIT ?` 根因（新发现，原 README 未记录）。改为内联整数字面量。同时发现派生表 `FROM (SELECT ...)` 缺少别名（MySQL 8.0 `ER_DERIVED_MUST_HAVE_ALIAS 1248`），补 `AS t`——此错误原被 LIMIT ? 的 1210 错误掩盖，修复 LIMIT 后才显现。
 
 后端（功能补全）：
 4. **`/api/review` GET 不支持 `bank_id` 筛选** — 前端已发送 `bank_id` 但后端未读取。新增 `q.bank_id = ?` 条件。
