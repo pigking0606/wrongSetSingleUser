@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN chapters ch ON kp.parent_id = ch.id
       LEFT JOIN chapters sub ON ch.parent_id = sub.id
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}`;
-    const countResult = await queryAll<{ total: number }>(countSql, params.slice(0, -2)); // exclude LIMIT/OFFSET params
+    const countResult = await queryAll<{ total: number }>(countSql, params.length > 2 ? params.slice(0, params.length - 2) : undefined); // exclude LIMIT/OFFSET params
     return NextResponse.json({ questions, total: countResult[0]?.total || 0 });
   }
 

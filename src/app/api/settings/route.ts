@@ -4,7 +4,7 @@ import { initSchema } from "@/lib/schema";
 import { encrypt, decrypt } from "@/lib/crypto-utils";
 
 async function getRaw(key: string, envFallback = "") {
-  const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+  const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE `key`=?", [key]);
   if (row?.value) return row.value;
   return process.env[envFallback] || "";
 }
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Encrypt API key fields before storing; model/URL stay plain
     const stored = KEY_FIELDS.has(k) ? encrypt(v || "") : (v || "");
     runAndSave(
-      "INSERT INTO settings (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
+      "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
       [k, stored]
     );
   }

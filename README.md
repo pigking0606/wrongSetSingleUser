@@ -1,6 +1,6 @@
 # 考研错题自适应刷题系统
 
-基于 Next.js 16 的考研错题管理工具，支持拍照上传、AI 识别分类、多解法解析、LaTeX 数学渲染、艾宾浩斯自适应复习。
+基于 Next.js 16 的考研错题管理工具，支持拍照上传、AI 识别分类、多解法解析、LaTeX 数学渲染、艾宾浩斯自适应复习、每日学习计划。
 
 ## 开发规范
 
@@ -12,8 +12,8 @@
 
 | 模块 | 功能 | 状态 |
 |---|---|---|
-| 项目基础 | Next.js 16 (Turbopack) + TypeScript + SQLite (sql.js WASM) + Tailwind CSS v4 | ✅ |
-| 数据库 | 5 张表（chapters / questions / review_records / tags / question_tags），含自动迁移 | ✅ |
+| 项目基础 | Next.js 16 (Turbopack) + TypeScript + MySQL (mysql2/promise) + Tailwind CSS v4 | ✅ |
+| 数据库 | 10 张表（banks / chapters / questions / review_records / tags / question_tags / settings / plan_tasks / daily_summaries / learning_progress） | ✅ |
 | 科目体系 | 4 科目 82 分类节点，三级层级（科目 → 书本 → 章节） | ✅ |
 | 408 | 408 → 数据结构/计组/操作系统/计算机网络 → 24 章节 | ✅ |
 | 数学二 | 数学二 → 高等数学(6章)/线性代数(6章) | ✅ |

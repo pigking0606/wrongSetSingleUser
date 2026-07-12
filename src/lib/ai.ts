@@ -83,7 +83,7 @@ import { queryOne } from "@/lib/db";
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
   try {
-    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE `key`=?", [key]);
     if (row?.value) return decrypt(row.value);
   } catch { /* table may not exist yet */ }
   return process.env[envFallback] || "";
