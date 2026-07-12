@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
        FROM (
          SELECT summary_date, content FROM daily_summaries
          WHERE summary_date < ? ORDER BY summary_date DESC LIMIT ${safeRecent}
-       )`,
+       ) AS t`,
       [date]
     );
     return NextResponse.json({ summaries: rows?.content || "" });
