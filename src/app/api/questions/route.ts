@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   // Lookup by external_id for cross-project sync
   if (externalId) {
-    const row = queryOne("SELECT * FROM questions WHERE external_id=?", [externalId]);
+    const row = await queryOne("SELECT * FROM questions WHERE external_id=?", [externalId]);
     return NextResponse.json({ question: row || null });
   }
 
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
     params.push(pageSize, page * pageSize);
   }
 
-  const questions = queryAll(sql, params);
+  const questions = await queryAll(sql, params);
 
   // If paginated, also return total count
   if (pageSize > 0) {
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN chapters ch ON kp.parent_id = ch.id
       LEFT JOIN chapters sub ON ch.parent_id = sub.id
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}`;
-    const countResult = queryAll<{ total: number }>(countSql, params.slice(0, -2)); // exclude LIMIT/OFFSET params
+    const countResult = await queryAll<{ total: number }>(countSql, params.slice(0, -2)); // exclude LIMIT/OFFSET params
     return NextResponse.json({ questions, total: countResult[0]?.total || 0 });
   }
 
@@ -169,7 +169,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   // Clean up image file
-  const q = queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [id]);
+  const q = await queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [id]);
   if (q?.image_path) {
     try { deleteUploadFile(q.image_path); } catch { /* ignore */ }
   }

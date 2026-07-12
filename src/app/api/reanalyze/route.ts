@@ -6,15 +6,15 @@ import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex, fixLatexWithAI } from "@/lib/ai";
 
 import { decrypt } from "@/lib/crypto-utils";
-function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = ""): string {
   try {
-    const row = queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
   } catch { /* */ }
   return process.env[envFallback] || "";
 }
 
-function getReanalyzeUrl(model: string, isText: boolean): string {
+async function getReanalyzeUrl(model: string, isText: boolean): string {
   const custom = loadSetting(isText ? "text_url" : "vision_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
   if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "question_id required" }, { status: 400 });
   }
 
-  const q = queryOne<{ ocr_text: string; image_path: string | null; id: number }>(
+  const q = await queryOne<{ ocr_text: string; image_path: string | null; id: number }>(
     "SELECT id, ocr_text, image_path FROM questions WHERE id=?", [question_id]
   );
   if (!q) return NextResponse.json({ error: "question not found" }, { status: 404 });

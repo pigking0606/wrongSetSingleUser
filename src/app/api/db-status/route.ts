@@ -6,10 +6,10 @@ export async function GET() {
   try {
     await initSchema();
 
-    const questionCount = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM questions");
-    const chapterCount = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM chapters");
-    const subjectCount = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM chapters WHERE level=1");
-    const reviewCount = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM review_records");
+    const questionCount = await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM questions");
+    const chapterCount = await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM chapters");
+    const subjectCount = await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM chapters WHERE level=1");
+    const reviewCount = await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM review_records");
 
     return NextResponse.json({
       questionCount: questionCount?.c ?? 0,

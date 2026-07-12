@@ -60,6 +60,7 @@ export default function QuestionsPage() {
   // Initial load — fetch all questions + subjects
   useEffect(() => {
     fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects);
+    fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)});
     fetchQuestions(null, null, null);
   }, []);
 

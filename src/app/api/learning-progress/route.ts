@@ -4,7 +4,7 @@ import { initSchema } from "@/lib/schema";
 
 export async function GET() {
   await initSchema();
-  const row = queryOne<{ content: string; updated_at: string }>(
+  const row = await queryOne<{ content: string; updated_at: string }>(
     "SELECT content, updated_at FROM learning_progress WHERE id=1"
   );
   return NextResponse.json({ content: row?.content || "", updated_at: row?.updated_at || "" });

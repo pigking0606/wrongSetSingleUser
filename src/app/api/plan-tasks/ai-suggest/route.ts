@@ -3,9 +3,9 @@ import { queryAll, queryOne } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto-utils";
 
-function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = ""): string {
   try {
-    const row = queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
   } catch { /* */ }
   return process.env[envFallback] || "";
@@ -26,12 +26,12 @@ export async function POST(req: NextRequest) {
   const targetDate = date || `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
   // Get all chapters for reference
-  const chapters = queryAll<{ id: number; name: string; level: number; parent_id: number | null }>(
+  const chapters = await queryAll<{ id: number; name: string; level: number; parent_id: number | null }>(
     "SELECT id, name, level, parent_id FROM chapters ORDER BY level, id"
   );
 
   // Get today's incomplete tasks (includes carried-over from yesterday)
-  const todayIncomplete = queryAll<{
+  const todayIncomplete = await queryAll<{
     title: string; completion_pct: number; difficulty: number; chapter_id: number | null;
   }>(
     "SELECT title, completion_pct, difficulty, chapter_id FROM plan_tasks WHERE task_date=? AND completion_pct < 100 ORDER BY sort_order, id",
@@ -39,12 +39,12 @@ export async function POST(req: NextRequest) {
   );
 
   // Get recent 5 days of summaries + tasks
-  const recentSummaries = queryAll<{ summary_date: string; content: string }>(
+  const recentSummaries = await queryAll<{ summary_date: string; content: string }>(
     "SELECT summary_date, content FROM daily_summaries WHERE summary_date < ? ORDER BY summary_date DESC LIMIT 5",
     [targetDate]
   );
 
-  const recentTasks = queryAll<{
+  const recentTasks = await queryAll<{
     task_date: string; title: string; status: string; chapter_id: number | null;
     completion_pct: number; difficulty: number;
   }>(
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   );
 
   // Get distinct user-defined task titles (to learn user's study patterns)
-  const allTitles = queryAll<{ title: string; cnt: number }>(
+  const allTitles = await queryAll<{ title: string; cnt: number }>(
     "SELECT title, COUNT(*) as cnt FROM plan_tasks GROUP BY title ORDER BY cnt DESC LIMIT 30"
   );
 

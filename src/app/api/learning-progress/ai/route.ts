@@ -3,18 +3,18 @@ import { queryAll, queryOne } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto-utils";
 
-function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = "") {
   try {
-    const row = queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
   } catch { /* */ }
   return process.env[envFallback] || "";
 }
 
-function getTextApiUrl(): string {
-  const custom = loadSetting("text_url");
+async function getTextApiUrl() {
+  const custom = await loadSetting("text_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
-  const model = loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
+  const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
   if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   if (mode === "update" && summaryDate) {
     // Get all summaries + tasks since the last progress update
-    const lastUpdate = queryOne<{ updated_at: string }>(
+    const lastUpdate = await queryOne<{ updated_at: string }>(
       "SELECT updated_at FROM learning_progress WHERE id=1"
     );
     // Take the EARLIER date so we cover everything since last update
@@ -39,11 +39,11 @@ export async function POST(req: NextRequest) {
       : summaryDate;
     const sinceDate = lastUpdateDate < summaryDate ? lastUpdateDate : summaryDate;
 
-    const summaries = queryAll<{ summary_date: string; content: string }>(
+    const summaries = await queryAll<{ summary_date: string; content: string }>(
       "SELECT summary_date, content FROM daily_summaries WHERE summary_date >= ? ORDER BY summary_date",
       [sinceDate]
     );
-    const tasks = queryAll<{ task_date: string; title: string; completion_pct: number; difficulty: number }>(
+    const tasks = await queryAll<{ task_date: string; title: string; completion_pct: number; difficulty: number }>(
       "SELECT task_date, title, completion_pct, difficulty FROM plan_tasks WHERE task_date >= ? ORDER BY task_date",
       [sinceDate]
     );

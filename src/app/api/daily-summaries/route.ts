@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const recent = parseInt(url.searchParams.get("recent") || "0");
 
   if (recent > 0) {
-    const rows = queryOne<{ content: string }>(
+    const rows = await queryOne<{ content: string }>(
       `SELECT GROUP_CONCAT(summary_date || ': ' || content, '\n---\n') as content
        FROM (
          SELECT summary_date, content FROM daily_summaries
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ summaries: rows?.content || "" });
   }
 
-  const row = queryOne<{ content: string }>(
+  const row = await queryOne<{ content: string }>(
     "SELECT content FROM daily_summaries WHERE summary_date = ?", [date]
   );
   return NextResponse.json({ content: row?.content || "" });

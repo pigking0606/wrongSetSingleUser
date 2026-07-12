@@ -81,9 +81,9 @@ export function autoWrapMathDelimiters(text: string): string {
 // Get settings from DB (with env fallback), auto-decrypt encrypted values
 import { queryOne } from "@/lib/db";
 import { decrypt } from "@/lib/crypto-utils";
-function loadSetting(key: string, envFallback = ""): string {
+async function loadSetting(key: string, envFallback = ""): string {
   try {
-    const row = queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
+    const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE key=?", [key]);
     if (row?.value) return decrypt(row.value);
   } catch { /* table may not exist yet */ }
   return process.env[envFallback] || "";
@@ -124,7 +124,7 @@ async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Prom
   if (entries.length === 0) return texts;
 
   try {
-    const dedupModel = loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+    const dedupModel = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
     const resp = await fetch(
       getApiUrl(dedupModel, "text_url"),
       {
@@ -259,7 +259,7 @@ function parseAiJson(rawText: string): AiAnalysisResult {
 
 interface ChapterRow { id: number; name: string; level: number; parent_id: number | null; }
 
-export function buildSystemPrompt(subjects: ChapterRow[]) {
+export async function buildSystemPrompt(subjects: ChapterRow[]) {
   const l1 = subjects.filter(c => c.level === 1);
   const l2 = subjects.filter(c => c.level === 2);
   const l3 = subjects.filter(c => c.level === 3);

@@ -16,7 +16,7 @@ export interface ClassificationResult {
 export async function performAnalysis(questionId: number): Promise<ClassificationResult | null> {
   await initSchema();
 
-  const q = queryOne<{ id: number; image_path: string; user_answer: string | null }>(
+  const q = await queryOne<{ id: number; image_path: string; user_answer: string | null }>(
     "SELECT id, image_path, user_answer FROM questions WHERE id=?", [questionId]
   );
   if (!q) {
@@ -35,7 +35,7 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
   const ext = q.image_path.split(".").pop()?.toLowerCase() || "jpg";
   const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
 
-  const chapterTree = queryAll<{ id: number; name: string; level: number; parent_id: number | null }>(
+  const chapterTree = await queryAll<{ id: number; name: string; level: number; parent_id: number | null }>(
     "SELECT id, name, level, parent_id FROM chapters ORDER BY level, id"
   );
 

@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const banks = searchParams.get("banks");
   if (banks) {
-    const rows = queryAll("SELECT id, name FROM banks ORDER BY id");
+    const rows = await queryAll("SELECT id, name FROM banks ORDER BY id");
     return NextResponse.json({ banks: rows });
   }
   const level = searchParams.get("level");
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const tree = searchParams.get("tree");
 
   if (tree === "true") {
-    const all = queryAll<{ id: number; name: string; parent_id: number | null; level: number; sort_order: number }>(
+    const all = await queryAll<{ id: number; name: string; parent_id: number | null; level: number; sort_order: number }>(
       "SELECT id, name, parent_id, level, sort_order FROM chapters ORDER BY level, sort_order, id"
     );
     return NextResponse.json(buildTree(all));
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   }
   sql += " ORDER BY level, sort_order, id";
 
-  return NextResponse.json(queryAll(sql, params));
+  return NextResponse.json(await queryAll(sql, params));
 }
 
 function buildTree(rows: { id: number; name: string; parent_id: number | null; level: number; sort_order: number }[]) {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   // Auto-calculate level based on parent
   let level = 1;
   if (parent_id) {
-    const parent = queryOne<{ level: number }>("SELECT level FROM chapters WHERE id=?", [parent_id]);
+    const parent = await queryOne<{ level: number }>("SELECT level FROM chapters WHERE id=?", [parent_id]);
     if (!parent) return NextResponse.json({ error: "父级不存在" }, { status: 404 });
     level = parent.level + 1;
     if (level > 3) return NextResponse.json({ error: "最多三级" }, { status: 400 });
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     [name.trim(), parent_id || null, level, sort_order || 0]
   );
 
-  const row = queryOne<{ id: number }>("SELECT MAX(id) as id FROM chapters");
+  const row = await queryOne<{ id: number }>("SELECT MAX(id) as id FROM chapters");
   return NextResponse.json({ ok: true, id: row?.id, level });
 }
 
@@ -96,7 +96,7 @@ export async function PUT(req: NextRequest) {
 
   const { name, parent_id, sort_order } = await req.json();
 
-  const existing = queryOne<{ id: number; level: number }>("SELECT id, level FROM chapters WHERE id=?", [id]);
+  const existing = await queryOne<{ id: number; level: number }>("SELECT id, level FROM chapters WHERE id=?", [id]);
   if (!existing) return NextResponse.json({ error: "章节不存在" }, { status: 404 });
 
   const updates: string[] = [];
@@ -111,7 +111,7 @@ export async function PUT(req: NextRequest) {
   if (parent_id !== undefined) {
     let level = 1;
     if (parent_id) {
-      const parent = queryOne<{ level: number }>("SELECT level FROM chapters WHERE id=?", [parent_id]);
+      const parent = await queryOne<{ level: number }>("SELECT level FROM chapters WHERE id=?", [parent_id]);
       if (!parent) return NextResponse.json({ error: "父级不存在" }, { status: 404 });
       level = parent.level + 1;
       if (level > 3) return NextResponse.json({ error: "最多三级" }, { status: 400 });
@@ -151,17 +151,17 @@ export async function DELETE(req: NextRequest) {
   const id = parseInt(searchParams.get("id") || "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const existing = queryOne<{ id: number }>("SELECT id FROM chapters WHERE id=?", [id]);
+  const existing = await queryOne<{ id: number }>("SELECT id FROM chapters WHERE id=?", [id]);
   if (!existing) return NextResponse.json({ error: "章节不存在" }, { status: 404 });
 
   // Check for children
-  const childCount = queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM chapters WHERE parent_id=?", [id]);
+  const childCount = await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM chapters WHERE parent_id=?", [id]);
   if (childCount && childCount.cnt > 0) {
     return NextResponse.json({ error: "该分类下还有子分类，请先删除子分类" }, { status: 400 });
   }
 
   // Check for questions using this chapter
-  const questionCount = queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM questions WHERE chapter_id=?", [id]);
+  const questionCount = await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM questions WHERE chapter_id=?", [id]);
   if (questionCount && questionCount.cnt > 0) {
     return NextResponse.json({ error: `该分类下有 ${questionCount.cnt} 道题目，请先迁移或删除这些题目` }, { status: 400 });
   }

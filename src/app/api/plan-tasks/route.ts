@@ -31,12 +31,12 @@ export async function GET(req: NextRequest) {
 
   // Lookup by external_id for cross-project sync
   if (externalId) {
-    const row = queryOne<TaskRow>("SELECT * FROM plan_tasks WHERE external_id=?", [externalId]);
+    const row = await queryOne<TaskRow>("SELECT * FROM plan_tasks WHERE external_id=?", [externalId]);
     return NextResponse.json({ task: row || null });
   }
 
   if (from && to) {
-    const rows = queryAll<TaskRow>(
+    const rows = await queryAll<TaskRow>(
       "SELECT * FROM plan_tasks WHERE task_date >= ? AND task_date <= ? ORDER BY task_date, sort_order, id",
       [from, to]
     );
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Tasks for the requested date
-  const rows = queryAll<TaskRow>(
+  const rows = await queryAll<TaskRow>(
     "SELECT * FROM plan_tasks WHERE task_date = ? ORDER BY sort_order, id",
     [date]
   );
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   // If viewing today, also return yesterday's incomplete tasks as a read-only notification
   if (date === today()) {
     const prev = yesterday(date);
-    const yesterdayIncomplete = queryAll<TaskRow>(
+    const yesterdayIncomplete = await queryAll<TaskRow>(
       "SELECT * FROM plan_tasks WHERE task_date = ? AND completion_pct < 100 ORDER BY sort_order, id",
       [prev]
     );
@@ -72,11 +72,11 @@ export async function POST(req: NextRequest) {
 
   // Dedup by external_id: if already exists, return existing
   if (external_id) {
-    const dup = queryOne<{ id: number }>("SELECT id FROM plan_tasks WHERE external_id=?", [external_id]);
+    const dup = await queryOne<{ id: number }>("SELECT id FROM plan_tasks WHERE external_id=?", [external_id]);
     if (dup) return NextResponse.json({ ok: true, id: dup.id, existed: true });
   }
 
-  const maxSort = queryOne<{ m: number }>(
+  const maxSort = await queryOne<{ m: number }>(
     "SELECT COALESCE(MAX(sort_order),0) as m FROM plan_tasks WHERE task_date=?",
     [task_date]
   );
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     "INSERT INTO plan_tasks (task_date, title, chapter_id, description, difficulty, completion_pct, external_id, sort_order) VALUES (?,?,?,?,?,0,?,?)",
     [task_date, title, chapter_id || null, description || "", difficulty || 3, external_id || null, (maxSort?.m || 0) + 1]
   );
-  const row = queryOne<{ id: number }>("SELECT last_insert_rowid() as id");
+  const row = await queryOne<{ id: number }>("SELECT last_insert_rowid() as id");
   return NextResponse.json({ ok: true, id: row?.id });
 }
 
@@ -95,7 +95,7 @@ export async function PUT(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   // Only allow updates to today's tasks
-  const task = queryOne<{ task_date: string; last_edited_date: string | null }>("SELECT task_date, last_edited_date FROM plan_tasks WHERE id=?", [id]);
+  const task = await queryOne<{ task_date: string; last_edited_date: string | null }>("SELECT task_date, last_edited_date FROM plan_tasks WHERE id=?", [id]);
   if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
   if (task.task_date !== today()) {
     return NextResponse.json({ error: "can only modify today's plan" }, { status: 403 });
@@ -120,7 +120,7 @@ export async function PUT(req: NextRequest) {
       );
     }
     // Return updated time_spent so frontend can sync
-    const updated = queryOne<{ time_spent: number }>("SELECT time_spent FROM plan_tasks WHERE id=?", [id]);
+    const updated = await queryOne<{ time_spent: number }>("SELECT time_spent FROM plan_tasks WHERE id=?", [id]);
     return NextResponse.json({ ok: true, time_spent: updated?.time_spent || 0 });
   }
 
@@ -171,7 +171,7 @@ export async function DELETE(req: NextRequest) {
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const task = queryOne<{ task_date: string }>("SELECT task_date FROM plan_tasks WHERE id=?", [parseInt(id)]);
+  const task = await queryOne<{ task_date: string }>("SELECT task_date FROM plan_tasks WHERE id=?", [parseInt(id)]);
   if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
   if (task.task_date !== today()) {
     return NextResponse.json({ error: "can only delete today's plan" }, { status: 403 });

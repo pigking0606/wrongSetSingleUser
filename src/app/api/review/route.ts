@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     ? `AND ${conditions.join(" AND ")}`
     : "";
 
-  const dueQuestions = queryAll<{
+  const dueQuestions = await queryAll<{
     id: number; ocr_text: string; chapter_id: number;
     correct_answer: string; explanation: string | null;
     ai_solutions: string | null; user_answer: string | null;
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const current = queryOne<{ review_count: number; ease_factor: number }>(
+  const current = await queryOne<{ review_count: number; ease_factor: number }>(
     `SELECT
        COUNT(rr.id) AS review_count,
        COALESCE(

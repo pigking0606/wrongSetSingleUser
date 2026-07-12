@@ -9,7 +9,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = await req.json();
   const taskId = parseInt(id);
 
-  const existing = queryOne<{ id: number }>("SELECT id FROM plan_tasks WHERE id=?", [taskId]);
+  const existing = await queryOne<{ id: number }>("SELECT id FROM plan_tasks WHERE id=?", [taskId]);
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const allowed = ["completion_pct", "difficulty", "time_spent", "status", "title", "description", "completed_at"];
@@ -28,7 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     runAndSave(`UPDATE plan_tasks SET ${updates.join(", ")} WHERE id=?`, values);
   }
 
-  const task = queryOne("SELECT * FROM plan_tasks WHERE id=?", [taskId]);
+  const task = await queryOne("SELECT * FROM plan_tasks WHERE id=?", [taskId]);
   return NextResponse.json({ ok: true, task });
 }
 

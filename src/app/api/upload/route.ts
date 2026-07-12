@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       [publicUrl, userAnswer || null, bankId, image.name || null]
     );
 
-    const row = queryOne<{ id: number }>("SELECT MAX(id) as id FROM questions");
+    const row = await queryOne<{ id: number }>("SELECT MAX(id) as id FROM questions");
     const questionId = row?.id ?? 0;
 
     performAnalysis(questionId).catch(err => {

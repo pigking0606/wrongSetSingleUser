@@ -10,7 +10,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = await req.json();
   const qId = parseInt(id);
 
-  const existing = queryOne<{ id: number }>("SELECT id FROM questions WHERE id=?", [qId]);
+  const existing = await queryOne<{ id: number }>("SELECT id FROM questions WHERE id=?", [qId]);
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const allowed = [
@@ -32,7 +32,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     runAndSave(`UPDATE questions SET ${updates.join(", ")} WHERE id=?`, values);
   }
 
-  const q = queryOne("SELECT * FROM questions WHERE id=?", [qId]);
+  const q = await queryOne("SELECT * FROM questions WHERE id=?", [qId]);
   return NextResponse.json({ ok: true, question: q });
 }
 
@@ -42,7 +42,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const qId = parseInt(id);
 
-  const q = queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [qId]);
+  const q = await queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [qId]);
   if (q?.image_path) deleteUploadFile(q.image_path);
 
   runAndSave("DELETE FROM questions WHERE id=?", [qId]);
