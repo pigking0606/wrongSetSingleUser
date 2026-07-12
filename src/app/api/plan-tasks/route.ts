@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     "SELECT COALESCE(MAX(sort_order),0) as m FROM plan_tasks WHERE task_date=?",
     [task_date]
   );
-  runAndSave(
+  await runAndSave(
     "INSERT INTO plan_tasks (task_date, title, chapter_id, description, difficulty, completion_pct, external_id, sort_order) VALUES (?,?,?,?,?,0,?,?)",
     [task_date, title, chapter_id || null, description || "", difficulty || 3, external_id || null, (maxSort?.m || 0) + 1]
   );
@@ -105,16 +105,16 @@ export async function PUT(req: NextRequest) {
   if (timer_action) {
     if (timer_action === "start") {
       // Only start if no timer is already running (cross-device guard)
-      runAndSave("UPDATE plan_tasks SET timer_started_at=CASE WHEN timer_started_at IS NULL THEN NOW() ELSE timer_started_at END WHERE id=?", [id]);
+      await runAndSave("UPDATE plan_tasks SET timer_started_at=CASE WHEN timer_started_at IS NULL THEN NOW() ELSE timer_started_at END WHERE id=?", [id]);
     } else if (timer_action === "pause" || timer_action === "stop") {
-      runAndSave(
+      await runAndSave(
         "UPDATE plan_tasks SET time_spent = time_spent + GREATEST(0, TIMESTAMPDIFF(SECOND, timer_started_at, NOW())), timer_started_at = NULL WHERE id = ? AND timer_started_at IS NOT NULL",
         [id]
       );
     } else if (timer_action === "resume") {
-      runAndSave("UPDATE plan_tasks SET timer_started_at=NOW() WHERE id=?", [id]);
+      await runAndSave("UPDATE plan_tasks SET timer_started_at=NOW() WHERE id=?", [id]);
     } else if (timer_action === "autosave") {
-      runAndSave(
+      await runAndSave(
         "UPDATE plan_tasks SET time_spent = time_spent + GREATEST(0, TIMESTAMPDIFF(SECOND, timer_started_at, NOW())), timer_started_at = NOW() WHERE id = ? AND timer_started_at IS NOT NULL",
         [id]
       );
@@ -144,9 +144,10 @@ export async function PUT(req: NextRequest) {
     vals.push(completion_pct);
     // Auto-set status based on completion_pct
     if (completion_pct >= 100) {
-      sets.push("status=?, completed_at=?");
+      // Use NOW() literal — new Date().toISOString() (e.g. 2026-07-12T16:51:34.000Z)
+      // is rejected by MySQL DATETIME, silently failing the UPDATE (bug: 100% reverted to 90% on refresh)
+      sets.push("status=?, completed_at=NOW()");
       vals.push("completed");
-      vals.push(new Date().toISOString());
     } else if (completion_pct > 0) {
       sets.push("status=?, completed_at=?");
       vals.push("in_progress");
@@ -160,7 +161,7 @@ export async function PUT(req: NextRequest) {
   if (!sets.length) return NextResponse.json({ error: "no fields" }, { status: 400 });
 
   vals.push(id);
-  runAndSave(`UPDATE plan_tasks SET ${sets.join(",")} WHERE id=?`, vals);
+  await runAndSave(`UPDATE plan_tasks SET ${sets.join(",")} WHERE id=?`, vals);
   return NextResponse.json({ ok: true });
 }
 
@@ -177,6 +178,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "can only delete today's plan" }, { status: 403 });
   }
 
-  runAndSave("DELETE FROM plan_tasks WHERE id=?", [parseInt(id)]);
+  await runAndSave("DELETE FROM plan_tasks WHERE id=?", [parseInt(id)]);
   return NextResponse.json({ ok: true });
 }
