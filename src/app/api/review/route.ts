@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
      WHERE (r.next_review_date IS NULL OR r.next_review_date <= ?) AND (q.status IS NULL OR q.status = 'ready')
        AND NOT (r.next_review_date IS NULL AND date(q.created_at) = ?)
      ${whereClause}
-     ORDER BY RANDOM()
+     ORDER BY RAND()
      LIMIT ?`,
     [...params, today, limit]
   );

@@ -48,6 +48,12 @@ export async function GET(req: NextRequest) {
     params.push(parseInt(chapterL2Id));
   }
 
+  // Bank filter
+  if (bankId) {
+    conditions.push("q.bank_id = ?");
+    params.push(parseInt(bankId));
+  }
+
   // Backward compat: old chapter_id = knowledge_point_id
   if (chapterId) {
     conditions.push("q.chapter_id = ?");

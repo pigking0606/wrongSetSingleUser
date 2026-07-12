@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   if (recent > 0) {
     const rows = await queryOne<{ content: string }>(
-      `SELECT GROUP_CONCAT(summary_date || ': ' || content, '\n---\n') as content
+      `SELECT GROUP_CONCAT(CONCAT(summary_date, ': ', content) SEPARATOR '\n---\n') as content
        FROM (
          SELECT summary_date, content FROM daily_summaries
          WHERE summary_date < ? ORDER BY summary_date DESC LIMIT ?
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
   runAndSave(
-    "INSERT INTO daily_summaries (summary_date, content) VALUES (?,?) ON CONFLICT(summary_date) DO UPDATE SET content=excluded.content",
+    "INSERT INTO daily_summaries (summary_date, content) VALUES (?,?) ON DUPLICATE KEY UPDATE content=VALUES(content)",
     [date, content]
   );
   return NextResponse.json({ ok: true });

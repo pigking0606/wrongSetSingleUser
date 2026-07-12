@@ -412,7 +412,7 @@ async function realAnalyze(
   chapterTree: ChapterRow[],
   userAnswer?: string
 ): Promise<AiAnalysisResult> {
-  const systemPrompt = buildSystemPrompt(chapterTree);
+  const systemPrompt = await buildSystemPrompt(chapterTree);
   const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
 
   const controller = new AbortController();

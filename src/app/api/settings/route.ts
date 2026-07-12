@@ -24,12 +24,12 @@ const KEY_FIELDS = new Set(["vision_key", "text_key"]);
 export async function GET() {
   await initSchema();
   return NextResponse.json({
-    visionKey: getKey("vision_key", "DASHSCOPE_API_KEY"),
-    visionModel: getPlain("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
-    visionUrl: getPlain("vision_url"),
-    textKey: getKey("text_key", "DEEPSEEK_API_KEY") || getKey("vision_key", "DASHSCOPE_API_KEY"),
-    textModel: getPlain("text_model", "TEXT_MODEL") || "deepseek-chat",
-    textUrl: getPlain("text_url"),
+    visionKey: await getKey("vision_key", "DASHSCOPE_API_KEY"),
+    visionModel: await getPlain("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
+    visionUrl: await getPlain("vision_url"),
+    textKey: (await getKey("text_key", "DEEPSEEK_API_KEY")) || (await getKey("vision_key", "DASHSCOPE_API_KEY")),
+    textModel: await getPlain("text_model", "TEXT_MODEL") || "deepseek-chat",
+    textUrl: await getPlain("text_url"),
   });
 }
 
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Encrypt API key fields before storing; model/URL stay plain
     const stored = KEY_FIELDS.has(k) ? encrypt(v || "") : (v || "");
     runAndSave(
-      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
       [k, stored]
     );
   }
