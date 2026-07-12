@@ -91,9 +91,10 @@ export default function QuestionsPage() {
     fetchQuestions(filter.subjectId, filter.chapterId, id);
   }, [kps, filter.subjectId, filter.chapterId]);
 
-  const fetchQuestions = async (sid: number | null, cid: number | null, kid: number | null, pg = 0) => {
+  const fetchQuestions = async (sid: number | null, cid: number | null, kid: number | null, pg = 0, bid: number | null = bankId) => {
     setLoading(true);
     const params = new URLSearchParams();
+    if (bid) params.set("bank_id", String(bid));
     if (kid) params.set("chapter_id", String(kid));
     else if (cid) params.set("chapter_l2_id", String(cid));
     else if (sid) params.set("subject_id", String(sid));
@@ -221,7 +222,7 @@ export default function QuestionsPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <h1 style={{ fontSize: "1.25rem", fontWeight: 700, flex: 1 }}>题库浏览</h1>
-        <select value={bankId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setBankId(v); setPage(0); }}
+        <select value={bankId ?? ""} onChange={e => { const v = e.target.value ? parseInt(e.target.value) : null; setBankId(v); setPage(0); fetchQuestions(filter.subjectId, filter.chapterId, filter.kpId, 0, v); }}
           style={{ fontSize: ".8rem", padding: ".2rem .4rem" }}>
           <option value={""}>全部题库</option>
           {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}

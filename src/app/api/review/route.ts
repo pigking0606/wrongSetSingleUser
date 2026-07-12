@@ -3,7 +3,7 @@ import { queryAll, queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { calcNextReview } from "@/lib/ebbinghaus";
 
-// GET /api/review?limit=10&subject_id=1&chapter_l2_id=5
+// GET /api/review?limit=10&subject_id=1&chapter_l2_id=5&bank_id=1
 export async function GET(req: NextRequest) {
   await initSchema();
   const { searchParams } = new URL(req.url);
@@ -11,28 +11,38 @@ export async function GET(req: NextRequest) {
   const subjectId = searchParams.get("subject_id");
   const chapterL2Id = searchParams.get("chapter_l2_id");
   const chapterId = searchParams.get("chapter_id");
+  const bankId = searchParams.get("bank_id");
 
   const d = new Date();
   const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const params: (string | number)[] = [today];
   const conditions: string[] = [];
+  const condParams: (string | number)[] = [];
 
   if (subjectId) {
     conditions.push("c1.id = ?");
-    params.push(parseInt(subjectId));
+    condParams.push(parseInt(subjectId));
   }
   if (chapterL2Id) {
     conditions.push("c2.id = ?");
-    params.push(parseInt(chapterL2Id));
+    condParams.push(parseInt(chapterL2Id));
   }
   if (chapterId) {
     conditions.push("c3.id = ?");
-    params.push(parseInt(chapterId));
+    condParams.push(parseInt(chapterId));
+  }
+  if (bankId) {
+    conditions.push("q.bank_id = ?");
+    condParams.push(parseInt(bankId));
   }
 
   const whereClause = conditions.length > 0
     ? `AND ${conditions.join(" AND ")}`
     : "";
+
+  // Inline LIMIT as integer literal — mysql2 prepared statements (pool.execute)
+  // throw ER_WRONG_ARGUMENTS 1210 when LIMIT uses ? placeholder.
+  // Params order must match SQL ? order: [today, today, ...conditions].
+  const safeLimit = Math.max(1, Math.floor(limit));
 
   const dueQuestions = await queryAll<{
     id: number; ocr_text: string; chapter_id: number;
@@ -64,8 +74,8 @@ export async function GET(req: NextRequest) {
        AND NOT (r.next_review_date IS NULL AND date(q.created_at) = ?)
      ${whereClause}
      ORDER BY RAND()
-     LIMIT ?`,
-    [...params, today, limit]
+     LIMIT ${safeLimit}`,
+    [today, today, ...condParams]
   );
 
   return NextResponse.json(dueQuestions);

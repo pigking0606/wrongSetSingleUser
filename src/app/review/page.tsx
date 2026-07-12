@@ -42,7 +42,10 @@ export default function ReviewPage() {
   const [questionLimit, setQuestionLimit] = useState(10);
   const [showExport, setShowExport] = useState(false);
 
-  useEffect(() => { fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects); }, []);
+  useEffect(() => {
+    fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects);
+    fetch("/api/chapters?banks=1").then(r => r.json()).then(d => { if (d.banks) setBanks(d.banks); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!subjectId) { setChapters([]); setKps([]); return; }
@@ -65,7 +68,7 @@ export default function ReviewPage() {
     setQuestions(await res.json());
     setCurrentIdx(0); setShowAnswer(false); setShowExplanation(false); setShowSolutions(false); setAnswered(false);
     setLoading(false);
-  }, [questionLimit, subjectId, chapterL2Id, kpId]);
+  }, [questionLimit, subjectId, chapterL2Id, kpId, bankId]);
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 

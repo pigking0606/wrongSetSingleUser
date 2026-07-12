@@ -14,13 +14,16 @@ export async function GET(req: NextRequest) {
   const recent = parseInt(url.searchParams.get("recent") || "0");
 
   if (recent > 0) {
+    // Inline LIMIT as integer literal — mysql2 prepared statements (pool.execute)
+    // throw ER_WRONG_ARGUMENTS 1210 when LIMIT uses ? placeholder.
+    const safeRecent = Math.max(1, Math.floor(recent));
     const rows = await queryOne<{ content: string }>(
       `SELECT GROUP_CONCAT(CONCAT(summary_date, ': ', content) SEPARATOR '\n---\n') as content
        FROM (
          SELECT summary_date, content FROM daily_summaries
-         WHERE summary_date < ? ORDER BY summary_date DESC LIMIT ?
+         WHERE summary_date < ? ORDER BY summary_date DESC LIMIT ${safeRecent}
        )`,
-      [date, recent]
+      [date]
     );
     return NextResponse.json({ summaries: rows?.content || "" });
   }

@@ -91,7 +91,7 @@ export default function PlanPage() {
   const [optimizing, setOptimizing] = useState(false);
 
   useEffect(() => {
-    fetch("/api/chapters").then(r => r.json()).then(d => setChapters(d.chapters || [])).catch(() => {});
+    fetch("/api/chapters").then(r => r.json()).then(d => setChapters(Array.isArray(d) ? d : (d.chapters || []))).catch(() => {});
     fetch("/api/learning-progress").then(r => r.json()).then(d => {
       setProgress(d.content || "");
       setProgressUpdated(d.updated_at || "");

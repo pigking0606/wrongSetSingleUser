@@ -75,20 +75,23 @@ export async function GET(req: NextRequest) {
   sql += " ORDER BY q.created_at DESC";
 
   if (pageSize > 0) {
-    sql += " LIMIT ? OFFSET ?";
-    params.push(pageSize, page * pageSize);
+    // Inline as integer literals — mysql2 prepared statements (pool.execute)
+    // throw ER_WRONG_ARGUMENTS 1210 when LIMIT/OFFSET use ? placeholders.
+    const safeLimit = Math.max(0, Math.floor(pageSize));
+    const safeOffset = Math.max(0, Math.floor(page * pageSize));
+    sql += ` LIMIT ${safeLimit} OFFSET ${safeOffset}`;
   }
 
   const questions = await queryAll(sql, params);
 
-  // If paginated, also return total count
+  // If paginated, also return total count (params now holds only filter conditions)
   if (pageSize > 0) {
     const countSql = `SELECT COUNT(*) as total FROM questions q
       LEFT JOIN chapters kp ON q.chapter_id = kp.id
       LEFT JOIN chapters ch ON kp.parent_id = ch.id
       LEFT JOIN chapters sub ON ch.parent_id = sub.id
       ${conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : ""}`;
-    const countResult = await queryAll<{ total: number }>(countSql, params.length > 2 ? params.slice(0, params.length - 2) : undefined); // exclude LIMIT/OFFSET params
+    const countResult = await queryAll<{ total: number }>(countSql, params);
     return NextResponse.json({ questions, total: countResult[0]?.total || 0 });
   }
 

@@ -154,7 +154,7 @@ export default function UploadPage() {
         for (let i = 0; i < multiCrops.length; i++) {
           const comp = await compressImage(multiCrops[i].blob, 2048);
           const fd = new FormData();
-          fd.append("image", comp, originalFile?.name || "upload.jpg"); fd.append("bank_id", String(bankId));
+          fd.append("image", comp, multiOriginalFile?.name || "upload.jpg"); fd.append("bank_id", String(bankId));
           if (userAnswer.trim()) fd.append("user_answer", userAnswer.trim());
           const r = await fetch("/api/upload", { method: "POST", body: fd });
           if (!r.ok) { setErrorMsg(`第${i+1}题上传失败`); setState("error"); return; }
@@ -170,7 +170,9 @@ export default function UploadPage() {
         finalBlob = await compressImage(croppedBlob, 2048);
       }
       const formData = new FormData();
-      formData.append("image", finalBlob, originalFile?.name || "upload.jpg");
+      const fileName = (mode === "twoPage" ? twoOriginalFile?.name : originalFile?.name) || "upload.jpg";
+      formData.append("image", finalBlob, fileName);
+      formData.append("bank_id", String(bankId));
       if (userAnswer.trim()) formData.append("user_answer", userAnswer.trim());
 
       const resp = await fetch("/api/upload", { method: "POST", body: formData });

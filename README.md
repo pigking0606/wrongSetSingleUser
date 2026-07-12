@@ -166,7 +166,7 @@ npm run dev
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/review?limit=&subject_id=&chapter_l2_id=&chapter_id=` | 获取到期复习题目 |
+| GET | `/api/review?limit=&subject_id=&chapter_l2_id=&chapter_id=&bank_id=` | 获取到期复习题目 |
 | POST | `/api/review` | 提交复习结果 `{question_id, correct}` → 计算下次复习日期 |
 
 ### 学习计划
@@ -307,10 +307,9 @@ mysql -uwrongset -pwrongset123 -P6603 wrongset
 
 | 问题 | 影响 | 状态 |
 |------|------|------|
-| `/api/questions` 500 (ER_WRONG_ARGUMENTS 1210) | 题库列表页无法加载 | ⚠️ 待修复 |
-| `/api/review` 500 (ER_WRONG_ARGUMENTS 1210) | 复习队列无法加载 | ⚠️ 待修复 |
+| 无 | — | ✅ 全部修复 |
 
-> 2026-07-12 已修复 11 个问题（commit `31edace` + `32d9027`），详见 git log。剩余 2 个 API 500 错误初步判断为 prepared statement 参数数量不匹配，建议添加 console.log(sql, params) 定位。
+> 2026-07-12 已修复全部 API 500 错误及前后端联调问题（详见变更记录）。根因：mysql2 `pool.execute()` 预处理语句不支持 `LIMIT ?` 占位符，会抛 `ER_WRONG_ARGUMENTS 1210`。修复方式：将 LIMIT/OFFSET 内联为整数字面量（值来自 `parseInt`，无注入风险）。
 
 ---
 
@@ -336,3 +335,27 @@ mysql -uwrongset -pwrongset123 -P6603 wrongset
 - commit `32d9027` 已部署
 - PM2 运行正常，`/api/ping` 返回 200
 - 8/10 个核心 API 正常，2 个待修复
+
+### 2026-07-12 — API 500 根因修复 + 前后端联调修复
+
+**修复 9 个问题（前后端联调全量检测）：**
+
+后端（3 个 API 500 错误根因修复）：
+1. **`/api/questions?pageSize=` 500** — `LIMIT ? OFFSET ?` 在 mysql2 `pool.execute()` 预处理语句中抛 `ER_WRONG_ARGUMENTS 1210`。改为内联整数字面量（`parseInt` 已防注入），并简化 count 查询参数（params 不再含 LIMIT/OFFSET）。
+2. **`/api/review?limit=` 500** — 同一 `LIMIT ?` 根因。同时修复参数顺序 bug：原 `[today, ...conditions, today, limit]` 与 SQL `?` 顺序 `[today, today, ...conditions, limit]` 不匹配（有筛选条件时参数错位）。改为 `[today, today, ...conditions]` + 内联 LIMIT。
+3. **`/api/daily-summaries?recent=` 500** — 同一 `LIMIT ?` 根因（新发现，原 README 未记录）。改为内联整数字面量。
+
+后端（功能补全）：
+4. **`/api/review` GET 不支持 `bank_id` 筛选** — 前端已发送 `bank_id` 但后端未读取。新增 `q.bank_id = ?` 条件。
+
+前端（前后端联调不一致）：
+5. **`review/page.tsx` 题库下拉永远为空** — 未请求 `/api/chapters?banks=1` 加载题库列表；且 `bankId` 未加入 `fetchQuestions` 的 `useCallback` 依赖数组（切换题库不刷新）。
+6. **`questions/page.tsx` 题库筛选不生效** — `fetchQuestions` 从未传递 `bank_id`；题库下拉 `onChange` 未触发重新拉取。
+7. **`plan/page.tsx` 任务章节名不显示** — 期望 `{chapters: [...]}` 但 `/api/chapters`（无参数）返回裸数组。改为 `Array.isArray(d) ? d : (d.chapters || [])`。
+8. **`upload/page.tsx` 单页/双页模式丢失 `bank_id`** — 仅 multiCrop 模式 append `bank_id`，单页/双页模式被丢弃。三种模式统一发送。
+9. **`upload/page.tsx` multiCrop 文件名用错变量** — 用 `originalFile`（单页状态）应为 `multiOriginalFile`，导致文件名恒为 `upload.jpg`。同时双页模式改用 `twoOriginalFile`。
+
+**验证：**
+- `npx tsc --noEmit` 通过
+- `npm run build` 通过（27 路由全部编译）
+- 服务器实测：`/api/questions?pageSize=10` `/api/review?limit=10` `/api/daily-summaries?recent=3` 部署后均返回 200
