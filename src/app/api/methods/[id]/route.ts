@@ -5,9 +5,10 @@ import { validateImageFile, saveUploadData, deleteUploadFile } from "@/lib/uploa
 import sharp from "sharp";
 
 // PUT /api/methods/[id] — multipart: title?, chapter_id?, content?, image?
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await initSchema();
-  const id = parseInt(params.id);
+  const { id: idStr } = await params;
+  const id = parseInt(idStr);
   const formData = await req.formData();
   const title = formData.get("title") as string | null;
   const chapterId = formData.get("chapter_id") as string | null;
@@ -40,9 +41,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // DELETE /api/methods/[id]
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await initSchema();
-  const id = parseInt(params.id);
+  const { id: idStr } = await params;
+  const id = parseInt(idStr);
   const row = await queryOne<{ image_path: string }>("SELECT image_path FROM solution_methods WHERE id=?", [id]);
   if (row?.image_path) deleteUploadFile(row.image_path);
   await runAndSave("DELETE FROM solution_methods WHERE id=?", [id]);

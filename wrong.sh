@@ -10,14 +10,15 @@ mkdir -p "$BACKUP_DIR"
 
 echo "==> backing up MySQL database..."
 # Project uses MySQL (mysql2 + initSchema), not SQLite.
-# Back up via mysqldump using credentials from .env (non-fatal on failure).
-if [ -f .env ]; then
-  set -a; source .env 2>/dev/null || true; set +a
+# mysqldump backup is entirely optional and must never block deploy.
+# Credentials are read from PM2's env (already exported in the deploy environment).
+# If .env exists, source it in a subshell; any failure is swallowed.
+( set +e; [ -f .env ] && { set -a; . ./.env 2>/dev/null; set +a; }; \
   mysqldump -h"${DB_HOST:-127.0.0.1}" -P"${DB_PORT:-3306}" -u"${DB_USER:-root}" -p"${DB_PASSWORD}" "${DB_NAME:-wrongset}" \
     > "$BACKUP_DIR/mysql-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.sql" 2>/dev/null \
-    && echo "    MySQL backup OK" \
-    || { rm -f "$BACKUP_DIR/mysql-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.sql"; echo "    (MySQL backup skipped — schema is CREATE TABLE IF NOT EXISTS so data is safe)"; }
-fi
+  && echo "    MySQL backup OK" \
+  || { rm -f "$BACKUP_DIR/mysql-"*.sql 2>/dev/null; echo "    (MySQL backup skipped — safe to continue)"; }
+) || echo "    (backup block skipped)"
 
 echo "==> backing up source (git: ${GIT_HASH})..."
 BACKUP_NAME="wrongset-src-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.tar.gz"
