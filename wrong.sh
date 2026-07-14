@@ -8,8 +8,16 @@ GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BACKUP_DIR="/www/backup/wrongset"
 mkdir -p "$BACKUP_DIR"
 
-echo "==> backing up database..."
-cp data/app.db "$BACKUP_DIR/app.db.$(date +%Y%m%d-%H%M%S)-${GIT_HASH}" 2>/dev/null || true
+echo "==> backing up MySQL database..."
+# Project uses MySQL (mysql2 + initSchema), not SQLite.
+# Back up via mysqldump using credentials from .env (non-fatal on failure).
+if [ -f .env ]; then
+  set -a; source .env 2>/dev/null || true; set +a
+  mysqldump -h"${DB_HOST:-127.0.0.1}" -P"${DB_PORT:-3306}" -u"${DB_USER:-root}" -p"${DB_PASSWORD}" "${DB_NAME:-wrongset}" \
+    > "$BACKUP_DIR/mysql-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.sql" 2>/dev/null \
+    && echo "    MySQL backup OK" \
+    || { rm -f "$BACKUP_DIR/mysql-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.sql"; echo "    (MySQL backup skipped — schema is CREATE TABLE IF NOT EXISTS so data is safe)"; }
+fi
 
 echo "==> backing up source (git: ${GIT_HASH})..."
 BACKUP_NAME="wrongset-src-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.tar.gz"
@@ -19,11 +27,9 @@ echo "==> source backup: $BACKUP_DIR/$BACKUP_NAME"
 echo "==> npm install..."
 npm install
 
-echo "==> db:init..."
-npm run db:init
-
-echo "==> seed:408..."
-npm run seed:408
+# Note: MySQL schema is auto-created by initSchema() on app startup (CREATE TABLE IF NOT EXISTS).
+# The old SQLite-based db:init and seed:408 scripts are removed from deploy — they operated on
+# data/app.db (SQLite) which is no longer used after the MySQL migration.
 
 echo "==> stopping pm2..."
 pm2 stop wrongset 2>/dev/null || true
