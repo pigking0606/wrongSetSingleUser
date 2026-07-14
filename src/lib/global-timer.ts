@@ -10,7 +10,7 @@ let _autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 const _listeners = new Set<Listener>();
 
 // Save callback — set by the page that owns the timer lifecycle
-let _onSave: ((taskId: number, action: "pause" | "stop" | "autosave") => void) | null = null;
+let _onSave: ((taskId: number, action: "pause" | "stop" | "autosave" | "resume") => void) | null = null;
 
 function notify() {
   _listeners.forEach(fn => fn());
@@ -33,7 +33,7 @@ function startAutoSave() {
   }, 300000); // 5 minutes
 }
 
-function triggerSave(action: "pause" | "stop" | "autosave") {
+function triggerSave(action: "pause" | "stop" | "autosave" | "resume") {
   if (_taskId !== null && _onSave) {
     _onSave(_taskId, action);
   }
@@ -122,7 +122,7 @@ export const globalTimer = {
 
   setTask(id: number, title: string) { _taskId = id; _taskTitle = title; notify(); },
 
-  setSaveCallback(fn: ((taskId: number, action: "pause" | "stop" | "autosave") => void) | null) { _onSave = fn; },
+  setSaveCallback(fn: ((taskId: number, action: "pause" | "stop" | "autosave" | "resume") => void) | null) { _onSave = fn; },
 
   subscribe(fn: Listener) {
     _listeners.add(fn);
