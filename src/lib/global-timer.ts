@@ -99,6 +99,7 @@ export const globalTimer = {
     _paused = false;
     tick();
     startAutoSave();
+    triggerSave("resume"); // Notify backend to set timer_started_at=NOW() — without this, stop() computes TIMESTAMPDIFF(NULL, NOW())=NULL and time_spent is lost
   },
 
   stop(): number {

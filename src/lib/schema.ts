@@ -52,6 +52,13 @@ export async function initSchema() {
     `CREATE TABLE IF NOT EXISTS learning_progress (
       id INT PRIMARY KEY, content LONGTEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS solution_methods (
+      id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(500) NOT NULL,
+      chapter_id INT, content LONGTEXT, image_path TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      extra_text_1 TEXT, extra_text_2 TEXT, extra_int_1 INT DEFAULT 0, extra_int_2 INT DEFAULT 0,
+      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 
   for (const sql of tables) {

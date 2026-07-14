@@ -54,7 +54,7 @@ export default function PlanPage() {
   const [showAdd, setShowAdd] = useState(false);
 
   const [showHistory, setShowHistory] = useState(false);
-  const [historyData, setHistoryData] = useState<Map<string, { total: number; pctSum: number; timeSum: number }>>(new Map());
+  const [historyData, setHistoryData] = useState<Map<string, { total: number; pctSum: number; timeSum: number; diffSum: number; pctDiffSum: number }>>(new Map());
 
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiReason, setAiReason] = useState("");
@@ -131,13 +131,15 @@ export default function PlanPage() {
     try {
       const res = await fetch(`/api/plan-tasks?from=2025-01-01&to=${today()}`);
       const all: PlanTask[] = ((await res.json()).tasks || []);
-      const avgPct = all.length > 0 ? Math.round(all.reduce((s, t) => s + (t.completion_pct || 0), 0) / all.length) : 0;
+      // Completion rate: difficulty-weighted average — harder tasks completed contribute more
+      const diffSum = all.reduce((s, t) => s + (t.difficulty || 3), 0);
+      const avgPct = diffSum > 0 ? Math.round(all.reduce((s, t) => s + (t.completion_pct || 0) * (t.difficulty || 3), 0) / diffSum) : 0;
       const avgDiff = all.length > 0 ? Math.round(all.reduce((s, t) => s + (t.difficulty || 3), 0) / all.length * 10) / 10 : 0;
-      // Streak: consecutive past days (including today) with any tasks
+      // Streak: consecutive past days (including today) with at least one task completion_pct > 0
       let streak = 0, d = today();
       while (true) {
         const dayTasks = all.filter(t => t.task_date === d);
-        if (dayTasks.length === 0) break;
+        if (!dayTasks.some(t => (t.completion_pct || 0) > 0)) break;
         streak++; d = addDays(d, -1);
       }
       const todayMinutes = all.filter(t=>t.task_date===today()).reduce((s,t)=>s+(t.time_spent||0),0);
@@ -152,10 +154,12 @@ export default function PlanPage() {
   const loadHistory = async () => {
     const from = addDays(today(), -30);
     const data = await (await fetch(`/api/plan-tasks?from=${from}&to=${today()}`)).json();
-    const map = new Map<string, { total: number; pctSum: number; timeSum: number }>();
+    const map = new Map<string, { total: number; pctSum: number; timeSum: number; diffSum: number; pctDiffSum: number }>();
     for (const t of (data.tasks || []) as PlanTask[]) {
-      const e = map.get(t.task_date) || { total: 0, pctSum: 0, timeSum: 0 };
+      const e = map.get(t.task_date) || { total: 0, pctSum: 0, timeSum: 0, diffSum: 0, pctDiffSum: 0 };
+      const diff = t.difficulty || 3;
       e.total++; e.pctSum += t.completion_pct || 0; e.timeSum += t.time_spent || 0;
+      e.diffSum += diff; e.pctDiffSum += (t.completion_pct || 0) * diff;
       map.set(t.task_date, e);
     }
     setHistoryData(map);
@@ -210,8 +214,10 @@ export default function PlanPage() {
       const resp = await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editingId, title: editTitle.trim() }) });
       const data = await resp.json();
       if (!resp.ok) { toast(data.error || "修改失败"); setEditSaving(false); return; }
+      // Local update only — avoid loadTasks which would overwrite time_spent with stale DB value
+      // (DB time_spent excludes the currently-running timer session that hasn't been autosaved yet)
+      setTasks(prev => prev.map(t => t.id === editingId ? { ...t, title: editTitle.trim(), last_edited_date: today() } : t));
       setEditingId(null);
-      await loadTasks(curDate);
       toast("任务已修改");
     } catch { toast("修改失败"); }
     setEditSaving(false);
@@ -285,9 +291,10 @@ export default function PlanPage() {
 
   const chapterName = (cid: number | null) => cid ? (chapters.find(c => c.id === cid)?.name || "") : "";
 
-  const avgPctToday = tasks.length > 0 ? Math.round(tasks.reduce((s, t) => s + (t.completion_pct || 0), 0) / tasks.length) : 0;
+  const avgPctToday = tasks.length > 0 ? Math.round(tasks.reduce((s, t) => s + (t.completion_pct || 0) * (t.difficulty || 3), 0) / tasks.reduce((s, t) => s + (t.difficulty || 3), 0)) : 0;
   const isToday = curDate === today();
   const isPast = curDate < today();
+  const dayTotalSeconds = tasks.reduce((s, t) => s + (t.time_spent || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -371,6 +378,7 @@ export default function PlanPage() {
             <div style={{ height: "100%", width: `${avgPctToday}%`, background: "var(--green-text)", borderRadius: "3px", transition: "width .3s" }} />
           </div>
           <span style={{ fontSize: ".75rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{avgPctToday}%</span>
+          {dayTotalSeconds > 0 && <span style={{ fontSize: ".7rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>· 总时长 {Math.floor(dayTotalSeconds/60)}分</span>}
         </div>
       )}
 
@@ -462,6 +470,15 @@ export default function PlanPage() {
                       onKeyDown={e=>{if(e.key==="Enter")saveTime(t.id,parseInt(editTimeVal)||0)}} autoFocus />
                     <button className="btn btn-primary" style={{ fontSize: ".7rem", padding: ".15rem .4rem" }} onClick={()=>saveTime(t.id,parseInt(editTimeVal)||0)}>保存</button>
                     <button className="btn" style={{ fontSize: ".7rem", padding: ".15rem .4rem" }} onClick={()=>setEditTimeId(null)}>取消</button>
+                  </div>
+                )}
+                {/* Timer row — today: interactive; past: read-only time_spent display */}
+                {isPast && t.time_spent > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: ".4rem", borderTop: "1px solid var(--border)", paddingTop: ".4rem", marginTop: ".1rem" }}>
+                    <span style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>学习时长</span>
+                    <span style={{ fontSize: ".8rem", fontVariantNumeric: "tabular-nums", fontWeight: 600, fontFamily: "monospace" }}>
+                      {Math.floor(t.time_spent/60)}分{t.time_spent%60 > 0 ? `${t.time_spent%60}秒` : ""}
+                    </span>
                   </div>
                 )}
                 {/* Timer row */}
@@ -597,8 +614,8 @@ export default function PlanPage() {
         </button>
         {showHistory && (
           <div style={{ display: "flex", flexDirection: "column", gap: ".3rem", marginTop: ".5rem" }}>
-            {Array.from(historyData.entries()).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30).map(([date, { total, pctSum, timeSum }]) => {
-              const pct = total > 0 ? Math.round(pctSum / total) : 0;
+            {Array.from(historyData.entries()).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30).map(([date, { total, pctSum, timeSum, diffSum, pctDiffSum }]) => {
+              const pct = diffSum > 0 ? Math.round(pctDiffSum / diffSum) : (total > 0 ? Math.round(pctSum / total) : 0);
               const timeMin = timeSum > 0 ? Math.floor(timeSum / 60) : 0;
               const timeStr = timeMin >= 60 ? `${Math.floor(timeMin/60)}h${timeMin%60}m` : timeMin > 0 ? `${timeMin}分` : "";
               return (
