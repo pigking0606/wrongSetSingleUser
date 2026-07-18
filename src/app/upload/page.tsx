@@ -188,16 +188,25 @@ export default function UploadPage() {
     if (mode === "single") {
       if (cropSrc) URL.revokeObjectURL(cropSrc);
       setCropSrc(null); setOriginalFile(null);
+      setCropping(false); setPreviewUrl(null); setState("idle");
     } else if (mode === "twoPage") {
       if (twoCropSrc) URL.revokeObjectURL(twoCropSrc);
       setTwoCropSrc(null); setTwoOriginalFile(null);
+      setCropping(false); setState("idle");
     } else {
+      // 多题框选模式：取消框选时只退出裁剪界面，保留已框选的题目
+      // 这样用户能回到「已框选 X 题」的提交页面，继续上传之前的题目
       if (multiCropSrc) URL.revokeObjectURL(multiCropSrc);
       setMultiCropSrc(null); setMultiOriginalFile(null);
-      multiCrops.forEach(x => URL.revokeObjectURL(x.preview));
-      setMultiCrops([]);
+      setCrop(undefined); setCompletedCrop(null);
+      if (multiCrops.length > 0) {
+        // 已有框选：回到多题提交页面（早期 return 分支会渲染 review UI）
+        setCropping(false);
+      } else {
+        // 没有任何框选：回到初始页
+        setCropping(false); setState("idle");
+      }
     }
-    setCropping(false); setPreviewUrl(null); setState("idle");
   };
 
   const handleReCrop = () => {

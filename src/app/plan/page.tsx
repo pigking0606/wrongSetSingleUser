@@ -486,8 +486,13 @@ export default function PlanPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: ".4rem", borderTop: "1px solid var(--border)", paddingTop: ".4rem", marginTop: ".1rem" }}>
                     {timer.taskId === t.id ? (
                       <>
-                        <span style={{ fontSize: ".8rem", fontVariantNumeric: "tabular-nums", fontWeight: 600, fontFamily: "monospace", minWidth: "3.5rem" }}>
-                          {String(Math.floor(timer.elapsed / 60)).padStart(2, "0")}:{String(timer.elapsed % 60).padStart(2, "0")}
+                        {/* 本段计时（主显示） */}
+                        <span style={{ fontSize: ".8rem", fontVariantNumeric: "tabular-nums", fontWeight: 600, fontFamily: "monospace", minWidth: "3.5rem" }} title="本段计时">
+                          {String(Math.floor(timer.segmentElapsed / 60)).padStart(2, "0")}:{String(timer.segmentElapsed % 60).padStart(2, "0")}
+                        </span>
+                        {/* 总计时（次显示，小号） */}
+                        <span style={{ fontSize: ".65rem", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", fontFamily: "monospace" }} title="总计时">
+                          / 总{String(Math.floor(timer.totalElapsed / 60)).padStart(2, "0")}:{String(timer.totalElapsed % 60).padStart(2, "0")}
                         </span>
                         {timer.running ? (
                           <button className="btn" onClick={globalTimer.pause} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>暂停</button>
@@ -498,12 +503,21 @@ export default function PlanPage() {
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem", marginLeft: "auto" }}>
                           全屏
                         </button>
+                        {/* 结束本段：保存当前段，立即开始新段（自动继续） */}
+                        <button className="btn" onClick={async () => {
+                          const sec = await globalTimer.endSegmentAndContinue();
+                          toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，新段已开始`);
+                        }}
+                          style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>
+                          结束本段
+                        </button>
+                        {/* 完全结束：停止计时，保存总时长 */}
                         <button className="btn" onClick={() => {
                           const sec = globalTimer.stop();
                           toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
                         }}
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem", color: "var(--text-muted)" }}>
-                          结束
+                          完全结束
                         </button>
                       </>
                     ) : (
@@ -644,11 +658,16 @@ export default function PlanPage() {
       {showFullscreen && (
         <StudyFullscreen
           taskTitle={timer.taskTitle}
-          elapsed={timer.elapsed}
+          segmentElapsed={timer.segmentElapsed}
+          totalElapsed={timer.totalElapsed}
           running={timer.running}
           paused={timer.paused}
           onPause={globalTimer.pause}
           onResume={globalTimer.resume}
+          onEndSegment={async () => {
+            const sec = await globalTimer.endSegmentAndContinue();
+            toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，新段已开始`);
+          }}
           onStop={() => {
             const sec = globalTimer.stop();
             toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);

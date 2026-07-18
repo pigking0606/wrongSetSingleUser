@@ -84,21 +84,25 @@ export function useTimer(initElapsed = 0) {
 }
 
 // Hook that reads from the global timer — survives page navigation
+// Exposes BOTH segment (current session) and total (task's accumulated time_spent)
 export function useGlobalTimer() {
-  const [elapsed, setElapsed] = useState(0);
+  const [segmentElapsed, setSegmentElapsed] = useState(0);
+  const [totalElapsed, setTotalElapsed] = useState(0);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
 
   useEffect(() => {
-    setElapsed(globalTimer.elapsed);
+    setSegmentElapsed(globalTimer.segmentElapsed);
+    setTotalElapsed(globalTimer.totalElapsed);
     setRunning(globalTimer.running);
     setPaused(globalTimer.paused);
     setTaskId(globalTimer.taskId);
     setTaskTitle(globalTimer.taskTitle);
     return globalTimer.subscribe(() => {
-      setElapsed(globalTimer.elapsed);
+      setSegmentElapsed(globalTimer.segmentElapsed);
+      setTotalElapsed(globalTimer.totalElapsed);
       setRunning(globalTimer.running);
       setPaused(globalTimer.paused);
       setTaskId(globalTimer.taskId);
@@ -106,16 +110,21 @@ export function useGlobalTimer() {
     });
   }, []);
 
-  return { elapsed, running, paused, taskId, taskTitle };
+  // Backward compat: elapsed = segmentElapsed (for code that hasn't migrated)
+  return { elapsed: segmentElapsed, segmentElapsed, totalElapsed, running, paused, taskId, taskTitle };
 }
 
-export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, onResume, onStop }: {
+export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, running, paused, onPause, onResume, onEndSegment, onStop }: {
   taskTitle: string;
-  elapsed: number;
+  segmentElapsed: number;
+  totalElapsed: number;
   running: boolean;
   paused: boolean;
   onPause: () => void;
   onResume: () => void;
+  // onEndSegment: save current segment, immediately start a new segment (auto-continue)
+  onEndSegment: () => void;
+  // onStop: fully stop the timer and exit fullscreen
   onStop: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -202,6 +211,22 @@ export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, 
         pointerEvents: "none",
       }} />
 
+      {/* Top-left small transparent total timer — always visible */}
+      <div style={{
+        position: "absolute", top: "1rem", left: "1rem", zIndex: 3,
+        background: "rgba(0,0,0,.35)", backdropFilter: "blur(8px)",
+        padding: ".4rem .7rem", borderRadius: "8px",
+        border: "1px solid rgba(255,255,255,.1)",
+        color: "rgba(255,255,255,.75)", fontSize: ".75rem",
+        fontVariantNumeric: "tabular-nums",
+        fontFamily: "'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace",
+        letterSpacing: ".02em", userSelect: "none",
+        textShadow: "0 1px 3px rgba(0,0,0,.5)",
+      }}>
+        <div style={{ fontSize: ".6rem", opacity: 0.65, marginBottom: ".1rem", letterSpacing: ".08em" }}>总计时</div>
+        <div>{fmtTime(totalElapsed)}</div>
+      </div>
+
       {/* Content — floating in the scene */}
       <div style={{
         position: "relative", zIndex: 1, textAlign: "center", color: "#fff",
@@ -217,7 +242,16 @@ export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, 
           {taskTitle}
         </p>
 
-        {/* Timer — large, centered, the focal point */}
+        {/* Label: 本段计时 */}
+        <div style={{
+          fontSize: ".7rem", fontWeight: 300, letterSpacing: ".15em",
+          opacity: showControls ? 0.7 : 0.4, marginBottom: ".5rem",
+          textTransform: "uppercase", transition: "opacity .6s",
+        }}>
+          本段计时
+        </div>
+
+        {/* Segment timer — large, centered, the focal point */}
         <div style={{
           fontSize: "clamp(4rem, 11vw, 8rem)", fontWeight: 200,
           fontVariantNumeric: "tabular-nums",
@@ -226,7 +260,7 @@ export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, 
           textShadow: "0 2px 12px rgba(0,0,0,.45)",
           transition: "opacity .6s",
         }}>
-          {fmtTime(elapsed)}
+          {fmtTime(segmentElapsed)}
         </div>
 
         {/* Subtle state indicator (always visible) */}
@@ -235,7 +269,7 @@ export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, 
           opacity: paused ? 0.6 : 0.25, transition: "opacity .6s",
           textShadow: "0 1px 3px rgba(0,0,0,.4)",
         }}>
-          {paused ? "已暂停" : running ? "专注中" : elapsed > 0 ? "已暂停" : ""}
+          {paused ? "已暂停" : running ? "专注中" : segmentElapsed > 0 ? "已暂停" : ""}
         </div>
       </div>
 
@@ -265,12 +299,20 @@ export function StudyFullscreen({ taskTitle, elapsed, running, paused, onPause, 
             letterSpacing: ".05em",
           }}>继续</button>
         ) : null}
+        {/* 结束本段：保存当前段，立即开始新段（自动继续） */}
+        <button onClick={onEndSegment} style={{
+          padding: ".6rem 2rem", fontSize: ".9rem", borderRadius: "10px",
+          border: "1px solid rgba(255,255,255,.2)", background: "rgba(255,255,255,.08)",
+          color: "#ddd", cursor: "pointer", backdropFilter: "blur(10px)",
+          letterSpacing: ".05em",
+        }}>结束本段</button>
+        {/* 完全结束：停止计时并退出全屏 */}
         <button onClick={handleStop} style={{
           padding: ".6rem 2rem", fontSize: ".9rem", borderRadius: "10px",
           border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.03)",
           color: "rgba(255,255,255,.5)", cursor: "pointer", backdropFilter: "blur(10px)",
           letterSpacing: ".05em",
-        }}>结束</button>
+        }}>完全结束</button>
         <button onClick={nextPhoto} style={{
           padding: ".6rem 1.2rem", fontSize: ".9rem", borderRadius: "10px",
           border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.03)",

@@ -120,7 +120,12 @@ export default function SettingsPage() {
           <button className="btn" style={{ fontSize: ".7rem", color: "var(--red-text)" }}
             onClick={async () => {
               if (!await modal.confirm("删除题库", "确定删除题库「" + b.name + "」？")) return;
-              await fetch("/api/chapters", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankId: b.id }) });
+              const r = await fetch("/api/chapters", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankId: b.id }) });
+              if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                modal.alert("删除失败", d.error || "请稍后重试");
+                return;
+              }
               fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)});
             }} >删除</button>
         </div>

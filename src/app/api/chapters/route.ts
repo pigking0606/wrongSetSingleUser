@@ -143,7 +143,18 @@ export async function DELETE(req: NextRequest) {
   try { body = await req.json(); } catch { /* no body */ }
   // Bank deletion via JSON body
   if (body.bankId) {
-    runAndSave("DELETE FROM banks WHERE id=?", [body.bankId]);
+    const bankId = parseInt(body.bankId);
+    if (!bankId) return NextResponse.json({ error: "invalid bankId" }, { status: 400 });
+    // 不允许删除默认题库（id=1）
+    if (bankId === 1) return NextResponse.json({ error: "默认题库不可删除" }, { status: 400 });
+    // 检查题库下是否有题目，有则阻止删除（避免数据丢失/孤儿记录）
+    const q = await queryOne<{ cnt: number }>("SELECT COUNT(*) as cnt FROM questions WHERE bank_id=?", [bankId]);
+    if (q && q.cnt > 0) {
+      return NextResponse.json({ error: `该题库下有 ${q.cnt} 道题目，请先迁移或删除这些题目` }, { status: 400 });
+    }
+    // BUGFIX: 必须 await runAndSave，否则响应在删除完成前返回，
+    // 前端立即刷新会看到题库"还在"（实际是删除尚未完成），造成"删除后依旧存在"的错觉。
+    await runAndSave("DELETE FROM banks WHERE id=?", [bankId]);
     return NextResponse.json({ ok: true });
   }
   // Chapter deletion via query param
@@ -166,6 +177,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: `该分类下有 ${questionCount.cnt} 道题目，请先迁移或删除这些题目` }, { status: 400 });
   }
 
-  runAndSave("DELETE FROM chapters WHERE id=?", [id]);
+  await runAndSave("DELETE FROM chapters WHERE id=?", [id]);
   return NextResponse.json({ ok: true });
 }

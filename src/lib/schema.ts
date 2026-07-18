@@ -65,6 +65,19 @@ export async function initSchema() {
     try { await db.execute(sql); } catch(e) { console.error("table create error:", (e as Error).message); }
   }
 
+  // Migrations: add columns to existing tables (idempotent — fails silently if column exists)
+  // 例题与解法图分离：image_path 存解法流程图（供 AI 解析），example_images 存例题图片
+  const migrations: Array<{ sql: string; desc: string }> = [
+    { sql: "ALTER TABLE solution_methods ADD COLUMN example_images TEXT", desc: "solution_methods.example_images" },
+  ];
+  for (const m of migrations) {
+    try { await db.execute(m.sql); } catch (e) {
+      const msg = (e as Error).message || "";
+      // MySQL error code 1060: Duplicate column name — expected, safe to ignore
+      if (!/Duplicate column|1060/i.test(msg)) console.error("migration error:", m.desc, msg);
+    }
+  }
+
   await db.execute("INSERT IGNORE INTO learning_progress (id, content) VALUES (1, '')");
   await db.execute("INSERT IGNORE INTO banks (id, name) VALUES (1, '默认题库')");
 }

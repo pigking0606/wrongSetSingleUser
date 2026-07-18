@@ -26,7 +26,7 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
 
   const imgPath = join(process.cwd(), "public", q.image_path);
   if (!existsSync(imgPath)) {
-    runAndSave("UPDATE questions SET status='error', ocr_text='图片文件丢失' WHERE id=?", [questionId]);
+    await runAndSave("UPDATE questions SET status='error', ocr_text='图片文件丢失' WHERE id=?", [questionId]);
     return null;
   }
 
@@ -56,13 +56,14 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     runAndSave(
       `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready' WHERE id=?`,
       [cls.knowledge_point_id, ocrText, result.questionType, correctAnswer, explanation, JSON.stringify(solutions), questionId]
-    );
+    ).catch(err => console.error("Failed to save AI analysis for question", questionId, err));
 
     return cls;
   } catch (err) {
     console.error("performAnalysis error for question", questionId, err);
     const errMsg = err instanceof Error ? err.message : "AI 分析失败";
-    runAndSave("UPDATE questions SET status='error', ocr_text=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
+    runAndSave("UPDATE questions SET status='error', ocr_text=? WHERE id=?", [errMsg.slice(0, 200), questionId])
+      .catch(e => console.error("Failed to save error status for question", questionId, e));
     return null;
   }
 }
