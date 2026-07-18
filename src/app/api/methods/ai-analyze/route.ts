@@ -77,6 +77,9 @@ async function getVisionUrl() {
 // ---------------------------------------------------------------------------
 const METHOD_SYSTEM_PROMPT = `你是题型解法整理专家。用户会上传一道或多道同一题型的例题图片，你的任务是总结出该题型的通用解法。
 
+【重要】思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
+输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
+
 ## 严格要求（违反任意一条即为失败）
 
 1. **简洁明了**：直接给出解法，不要反复思考、不要"等等不对"、不要自我推翻。只保留最终结论。
@@ -127,9 +130,10 @@ async function analyzeMethodImages(
       },
       body: JSON.stringify({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         response_format: { type: "json_object" },
         temperature: 0,
+        // 保留思考能力，用 stripThinkingBeforeJson 清理
         messages: [
           { role: "system", content: METHOD_SYSTEM_PROMPT },
           { role: "user", content: userContent },

@@ -53,9 +53,17 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
 
     const cls = matchChapters(chapterTree, result.classification);
 
+    // 修复：所有字符串字段兜底为 ""，防止 undefined 传给 SQL 报 "Bind parameters must not contain undefined"
+    // 根因：agnes-2.0-flash 思考外溢时 JSON 可能缺字段或字段值为 undefined
+    const safeOcr = ocrText || "";
+    const safeAnswer = correctAnswer || "";
+    const safeExpl = explanation || "";
+    const safeSolutions = JSON.stringify(solutions || []);
+    const safeType = result.questionType || "single_choice";
+
     runAndSave(
       `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready' WHERE id=?`,
-      [cls.knowledge_point_id, ocrText, result.questionType, correctAnswer, explanation, JSON.stringify(solutions), questionId]
+      [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, questionId]
     ).catch(err => console.error("Failed to save AI analysis for question", questionId, err));
 
     return cls;

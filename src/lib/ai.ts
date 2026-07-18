@@ -132,10 +132,10 @@ async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Prom
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: dedupModel,
-          max_tokens: 4096,
+          max_tokens: 8192,
           temperature: 0,
           messages: [
-            { role: "system", content: DEDUP_PROMPT },
+            { role: "system", content: DEDUP_PROMPT + "\n\n【绝对禁止】禁止输出思考过程，直接输出精简结果。" },
             { role: "user", content: `输入文本（可能需要精简）：\n\n${entries.map(([k, v]) => `【${k}】\n${v}`).join("\n\n")}\n\n请输出精简后的文本（保持【字段名】标记，直接输出结果）：` },
           ],
         }),
@@ -164,9 +164,11 @@ async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<vo
   if (result.correctAnswer && result.correctAnswer.length > 30) fields["correctAnswer"] = result.correctAnswer;
   if (result.ocrText && result.ocrText.length > 30) fields["ocrText"] = result.ocrText;
   const fixed = await dedupWithAI(fields, apiKey);
-  if (fixed["explanation"]) result.explanation = fixed["explanation"];
-  if (fixed["correctAnswer"]) result.correctAnswer = fixed["correctAnswer"];
-  if (fixed["ocrText"]) result.ocrText = fixed["ocrText"];
+  // 修复：dedupWithAI 可能返回 undefined（解析失败或网络错误时），写回前必须检查
+  // 否则 result.explanation = undefined 会让后续 SQL 报 "Bind parameters must not contain undefined"
+  if (fixed["explanation"] && typeof fixed["explanation"] === "string") result.explanation = fixed["explanation"];
+  if (fixed["correctAnswer"] && typeof fixed["correctAnswer"] === "string") result.correctAnswer = fixed["correctAnswer"];
+  if (fixed["ocrText"] && typeof fixed["ocrText"] === "string") result.ocrText = fixed["ocrText"];
 }
 
 // ---------------------------------------------------------------------------
@@ -217,9 +219,48 @@ export function sanitizeLatex(text: string) {
 }
 
 function fixLatexEscapes(raw: string) {
+  // AI 经常在 JSON 字符串里写 `3\times3` 这种，JSON.parse 会把 `\t` 当成制表符
+  // 导致 `3<tab>imes3`。修复：单字母 \t \n \r \b \f 后跟字母的，转成 \\t \\n 等
+  // 这样 JSON.parse 后得到 `\times3`（正确的 LaTeX）
+  // 注意：必须先处理单字母转义，再处理 2+ 字母命令
+  let s = raw.replace(/(?<!\\)\\([tnrbf])([a-zA-Z])/g, "\\\\$1$2");
   // Replace single \ followed by 2+ letters with \\ (LaTeX commands like \frac, \lim).
-  // Single-letter \ escapes (\n, \t, \r, \b, \f) are JSON escapes — leave them alone.
-  return raw.replace(/(?<!\\)\\([a-zA-Z]{2,})/g, "\\\\$1");
+  // Single-letter \ escapes (\n, \t, \r, \b, \f) that are NOT followed by a letter
+  // are legitimate JSON escapes — leave them alone.
+  s = s.replace(/(?<!\\)\\([a-zA-Z]{2,})/g, "\\\\$1");
+  return s;
+}
+
+// Strip "thinking" content that agnes-2.0-flash leaks into the output
+// These models output thousands of chars of "等等" "再思考" "如果...那么..." before the JSON
+// We strip everything before the LAST top-level JSON object (heuristic: find the last
+// line that starts with { or the last {"ocrText" occurrence)
+function stripThinkingBeforeJson(text: string): string {
+  // Strategy 1: find the last occurrence of {"ocrText" — the start of the actual JSON
+  // (this is robust because AI's thinking rarely contains this exact key name)
+  const markerIdx = text.lastIndexOf('{"ocrText"');
+  if (markerIdx >= 0) {
+    return text.slice(markerIdx);
+  }
+  // Strategy 2: find the last {"ocrText with whitespace — sometimes AI adds space
+  const markerIdx2 = text.lastIndexOf('{ "ocrText"');
+  if (markerIdx2 >= 0) {
+    return text.slice(markerIdx2);
+  }
+  // Strategy 3: find the last line starting with { (assuming thinking is prose, not JSON)
+  const lines = text.split("\n");
+  let lastBraceLine = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith("{") && trimmed.includes(":")) {
+      lastBraceLine = i;
+      break;
+    }
+  }
+  if (lastBraceLine >= 0) {
+    return lines.slice(lastBraceLine).join("\n");
+  }
+  return text;
 }
 
 function parseAiJson(rawText: string): AiAnalysisResult {
@@ -227,6 +268,9 @@ function parseAiJson(rawText: string): AiAnalysisResult {
 
   // Strip leading ``` fences (```json, ```, etc.)
   jsonStr = jsonStr.replace(/^```[\s\S]*?\n/, "").replace(/\n```\s*$/, "");
+
+  // NEW: agnes-2.0-flash leaks thinking content before the JSON — strip it
+  jsonStr = stripThinkingBeforeJson(jsonStr);
 
   // Fix LaTeX backslashes that AI forgot to double-escape
   jsonStr = fixLatexEscapes(jsonStr);
@@ -277,6 +321,12 @@ export async function buildSystemPrompt(subjects: ChapterRow[]) {
   const chapterTree = lines.join("\n");
 
   return `你是考研命题专家，擅长将题目精准归类到考研科目体系中。
+
+【重要】最终答案必须基于严格的数学/逻辑推导，禁止"看图猜答案"。
+图片中的手写笔迹（答案、批改勾叉、演算）一律不得作为正确答案的依据。
+如果推导结果与图片手写答案冲突，以推导结果为准，在 explanation 中说明冲突点。
+思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
+输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
 
 ## 科目体系（必须严格使用以下名称，不得修改、缩写、自创）
 
@@ -429,9 +479,12 @@ async function realAnalyze(
         },
         body: JSON.stringify({
           model: await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
-          max_tokens: 8192,
+          max_tokens: 16384,
           response_format: { type: "json_object" },
           temperature: 0,
+          // 保留思考能力（agnes-2.0-flash 是思考型模型，对复杂数学题推理重要）
+          // 但用 stripThinkingBeforeJson 在解析前剥离思考内容，只提取最终 JSON
+          // 强化 prompt 禁止"看图猜答案"
           messages: [
             { role: "system", content: systemPrompt },
             {
