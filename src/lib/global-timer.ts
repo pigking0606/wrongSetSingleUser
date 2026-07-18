@@ -122,33 +122,35 @@ export const globalTimer = {
     notify();
   },
 
-  // endSegmentAndContinue: save current segment to backend, immediately start a new segment
-  // Use case: user clicks "结束本段" — saves current segment, starts a fresh segment timer
-  // IMPORTANT: "stop" must complete before "start" on the backend, otherwise the new segment's
-  // timer_started_at would be set before the old one is cleared, causing the race condition.
+  // endSegment: 保存当前段到后端（action="stop"），重置本段计时为 0，进入暂停态
+  // 不自动开始新段 — 用户需手动点击「开始新段」(resume) 才开始下一段计时
+  // 场景：用户点「结束本段」→ 保存当前段时长到数据库 → 本段归零 → 等待用户决定
+  // 后端 timer_started_at 保持 NULL（stop 已清除），resume 时再设回 NOW()
   // Returns the segment duration that was just saved (in seconds)
-  async endSegmentAndContinue(): Promise<number> {
+  async endSegment(): Promise<number> {
     if (!_running && !_paused) return 0;
     const segmentDuration = getSegmentSeconds();
     // Add this segment to the saved total
     _savedSegmentTotal += segmentDuration;
     // Save current segment to backend (time_spent += segment, timer_started_at = NULL)
-    // Await to ensure "stop" completes before "start" — avoids race condition where
-    // "start" executes first (no-op since timer_started_at is still set) then "stop" clears it,
-    // leaving the new segment without an active timer_started_at.
-    try { await triggerSave("stop"); } catch { /* ignore save errors, continue starting new segment */ }
-    // Immediately start a new segment (backend sets timer_started_at = NOW())
-    try { await triggerSave("start"); } catch { /* ignore */ }
-    // Reset segment tracker
+    try { await triggerSave("stop"); } catch { /* ignore save errors */ }
+    // Reset segment tracker — 本段归零，等待用户开始新段
     _segmentAccumulated = 0;
-    _segmentStart = Date.now();
-    _running = true;
-    _paused = false;
+    _segmentStart = 0;
+    _running = false;
+    _paused = true; // 进入暂停态（segmentElapsed=0 表示新段未开始）
     clearTick();
-    tick();
-    startAutoSave();
+    clearAutoSave();
     notify();
     return segmentDuration;
+  },
+
+  // 向后兼容：endSegmentAndContinue = endSegment + resume（自动开始新段）
+  // 不再使用 — 保留以防其他地方调用
+  async endSegmentAndContinue(): Promise<number> {
+    const sec = await this.endSegment();
+    this.resume();
+    return sec;
   },
 
   // stop: fully stop the timer and clear the task

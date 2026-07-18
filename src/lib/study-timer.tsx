@@ -122,7 +122,8 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
   paused: boolean;
   onPause: () => void;
   onResume: () => void;
-  // onEndSegment: save current segment, immediately start a new segment (auto-continue)
+  // onEndSegment: save current segment to backend, reset segment to 0, enter paused state
+  // User must click "开始新段"(resume) to start the next segment
   onEndSegment: () => void;
   // onStop: fully stop the timer and exit fullscreen
   onStop: () => void;
@@ -297,9 +298,9 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
             border: "1px solid rgba(255,255,255,.2)", background: "rgba(255,255,255,.06)",
             color: "#ddd", cursor: "pointer", backdropFilter: "blur(10px)",
             letterSpacing: ".05em",
-          }}>继续</button>
+          }}>{segmentElapsed === 0 ? "开始新段" : "继续"}</button>
         ) : null}
-        {/* 结束本段：保存当前段，立即开始新段（自动继续） */}
+        {/* 结束本段：保存当前段时长到后端，本段归零，进入暂停态等待用户开始新段 */}
         <button onClick={onEndSegment} style={{
           padding: ".6rem 2rem", fontSize: ".9rem", borderRadius: "10px",
           border: "1px solid rgba(255,255,255,.2)", background: "rgba(255,255,255,.08)",

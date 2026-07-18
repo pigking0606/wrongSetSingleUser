@@ -497,16 +497,18 @@ export default function PlanPage() {
                         {timer.running ? (
                           <button className="btn" onClick={globalTimer.pause} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>暂停</button>
                         ) : (
-                          <button className="btn" onClick={globalTimer.resume} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>继续</button>
+                          <button className="btn" onClick={globalTimer.resume} style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>
+                            {timer.segmentElapsed === 0 ? "开始新段" : "继续"}
+                          </button>
                         )}
                         <button className="btn" onClick={() => setShowFullscreen(true)}
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem", marginLeft: "auto" }}>
                           全屏
                         </button>
-                        {/* 结束本段：保存当前段，立即开始新段（自动继续） */}
+                        {/* 结束本段：保存当前段时长到后端，本段归零，进入暂停态等待用户开始新段 */}
                         <button className="btn" onClick={async () => {
-                          const sec = await globalTimer.endSegmentAndContinue();
-                          toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，新段已开始`);
+                          const sec = await globalTimer.endSegment();
+                          toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，点击「开始新段」继续`);
                         }}
                           style={{ fontSize: ".7rem", padding: ".15rem .5rem" }}>
                           结束本段
@@ -665,8 +667,8 @@ export default function PlanPage() {
           onPause={globalTimer.pause}
           onResume={globalTimer.resume}
           onEndSegment={async () => {
-            const sec = await globalTimer.endSegmentAndContinue();
-            toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，新段已开始`);
+            const sec = await globalTimer.endSegment();
+            toast(`本段 ${Math.floor(sec/60)}分${sec%60}秒 已保存，点击「开始新段」继续`);
           }}
           onStop={() => {
             const sec = globalTimer.stop();
