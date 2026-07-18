@@ -234,18 +234,23 @@ function fixLatexEscapes(raw: string) {
 // Strip "thinking" content that agnes-2.0-flash leaks into the output
 // These models output thousands of chars of "等等" "再思考" "如果...那么..." before the JSON
 // We strip everything before the LAST top-level JSON object (heuristic: find the last
-// line that starts with { or the last {"ocrText" occurrence)
+// line that starts with { or the last {"<knownKey>" occurrence)
 function stripThinkingBeforeJson(text: string): string {
-  // Strategy 1: find the last occurrence of {"ocrText" — the start of the actual JSON
-  // (this is robust because AI's thinking rarely contains this exact key name)
-  const markerIdx = text.lastIndexOf('{"ocrText"');
-  if (markerIdx >= 0) {
-    return text.slice(markerIdx);
+  // Strategy 1+2: try multiple known first-key markers — whichever appears LAST wins.
+  // 第一步输出首字段是 ocrText，第二步是 correctAnswer，都要覆盖。
+  const markers = [
+    '{"ocrText"',
+    '{ "ocrText"',
+    '{"correctAnswer"',
+    '{ "correctAnswer"',
+  ];
+  let bestIdx = -1;
+  for (const m of markers) {
+    const idx = text.lastIndexOf(m);
+    if (idx > bestIdx) bestIdx = idx;
   }
-  // Strategy 2: find the last {"ocrText with whitespace — sometimes AI adds space
-  const markerIdx2 = text.lastIndexOf('{ "ocrText"');
-  if (markerIdx2 >= 0) {
-    return text.slice(markerIdx2);
+  if (bestIdx >= 0) {
+    return text.slice(bestIdx);
   }
   // Strategy 3: find the last line starting with { (assuming thinking is prose, not JSON)
   const lines = text.split("\n");
@@ -638,4 +643,311 @@ export async function analyzeWrongAnswerImage(
     throw new AiApiError("API key 未配置，请在设置页面填写", 500);
   }
   return realAnalyze(imageBase64, mimeType, chapterTree, userAnswer);
+}
+
+// ===========================================================================
+// Two-step split (new pipeline, replaces realAnalyze for first analysis)
+//
+// 第一步：视觉模型 + 图片 → OCR + 分类（输出 {ocrText, questionType, classification}）
+// 第二步：文本模型 + 纯文本 OCR（不传图）→ 推导答案 + 解析（输出 {correctAnswer, explanation, solutions}）
+//
+// 拆分动机：agnes-2.0-flash 是思考型模型，单次任务过重时思考会外溢污染 JSON。
+// 重解析效果好就是因为 prompt 短、字段少；首次解析失败是因为一次要做 7 字段+分类+200字解析。
+// 拆成两步后，每步的 prompt 都短、字段都少，思考外溢概率大幅下降。
+// 第二步用纯文本模型还能彻底消除"看图猜答案"——模型根本看不到图片，无法被手写笔迹误导。
+// ===========================================================================
+
+interface OcrClassifyResult {
+  ocrText: string;
+  questionType: AiAnalysisResult["questionType"];
+  classification: { subject: string; chapter: string; knowledgePoint: string };
+}
+
+async function buildOcrClassifyPrompt(chapterTree: ChapterRow[]): Promise<string> {
+  const l1 = chapterTree.filter(c => c.level === 1);
+  const l2 = chapterTree.filter(c => c.level === 2);
+  const l3 = chapterTree.filter(c => c.level === 3);
+
+  const lines: string[] = [];
+  for (const s of l1) {
+    const chs = l2.filter(c => c.parent_id === s.id);
+    lines.push(`【${s.name}】`);
+    for (const ch of chs) {
+      const kps = l3.filter(k => k.parent_id === ch.id).map(k => k.name);
+      lines.push(`  ${ch.name}：${kps.join("、")}`);
+    }
+  }
+  const tree = lines.join("\n");
+
+  return `你是题目OCR识别与分类专家。本轮只需完成两件事：1) 精准 OCR 题干 2) 归类到考研科目。
+不要推导答案，不要写解析。
+
+思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
+输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
+
+## 科目体系（必须严格使用以下名称，不得修改、缩写、自创）
+${tree}
+
+## 分类规则
+- subject：从上述 4 个科目（408/数学二/英语二/政治）中选
+- chapter：必须从该 subject 下的章节名中选，使用完全相同的中文名称
+- knowledgePoint：必须从该 chapter 下的知识点中选，使用完全相同的中文名称
+- 计算机/数据结构/计组/操作系统/网络 → subject="408"
+- 数学公式/计算/证明题 → subject="数学二"
+- 英语阅读/翻译/完形/写作 → subject="英语二"
+- 政治理论/时政/哲学/历史 → subject="政治"
+
+## ocrText 规范
+- 完整逐字识别题目，去掉题号前缀（如 '32.'、'【2021统考真题】'）
+- 只保留印刷体题干正文，忽略图片中的手写笔迹（手写答案/演算/批注一律不识别）
+- 选择题选项每行一个：\\nA. xxx\\nB. xxx\\nC. xxx\\nD. xxx
+- 行列式/矩阵识别为整体 LaTeX：$\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}$
+- 图表/拓扑图用文字详细描述（节点名、连接关系、IP、带宽等），缺失会导致后续无法解题
+- JSON 内 LaTeX 反斜杠写成双反斜杠 \\\\frac
+
+输出纯 JSON（不含 markdown 包裹）：
+{"ocrText":"题干","questionType":"single_choice","classification":{"subject":"","chapter":"","knowledgePoint":""}}`;
+}
+
+async function analyzeOcrAndClassify(
+  imageBase64: string,
+  mimeType: string,
+  chapterTree: ChapterRow[],
+): Promise<OcrClassifyResult> {
+  const systemPrompt = await buildOcrClassifyPrompt(chapterTree);
+  const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
+  if (!apiKey) throw new AiApiError("vision_key 未配置，请在设置页面填写", 500);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+
+  try {
+    const resp = await fetch(
+      await getVisionUrl(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
+          max_tokens: 16384,
+          response_format: { type: "json_object" },
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+                { type: "text", text: "请识别题目文字并归类，返回纯 JSON。" },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new AiApiError(`OCR+分类 API error ${resp.status}: ${errText}`, resp.status);
+    }
+
+    const data = await resp.json();
+    const rawText: string = data.choices?.[0]?.message?.content || "";
+    const jsonStr = stripThinkingBeforeJson(rawText);
+    const parsed = parseAiJson(jsonStr);
+
+    return {
+      ocrText: (parsed.ocrText || "").replace(/\\n/g, "\n").replace(/\\t/g, " "),
+      questionType: parsed.questionType || "single_choice",
+      classification: parsed.classification || { subject: "", chapter: "", knowledgePoint: "" },
+    };
+  } catch (err) {
+    if (err instanceof AiApiError || err instanceof AiParseError) throw err;
+    if ((err as Error).name === "AbortError") throw new AiTimeoutError("OCR+分类步骤超时");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const ANSWER_EXPLAIN_PROMPT = `你是考研命题专家。基于已 OCR 的题干文本，推导正确答案并撰写解析。
+
+【重要】最终答案必须基于严格的数学/逻辑推导，禁止凭感觉猜答案。
+思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
+输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
+
+## 输出字段
+- correctAnswer：只给出该题的正确答案
+- explanation：100-200 字解析，包含 ①关键知识点 ②分步推导 ③易错点
+- solutions：1-2 种解法，每种含 name / steps[] / answer
+
+## 数学公式规范
+- 完整公式必须一个 $...$ 块包裹，禁止拆成 $a = $b 形式
+- ^{...} 和 _{...} 内部绝对不能有 $ 符号
+- 所有 LaTeX 命令必须在 $...$ 内部
+- JSON 内 LaTeX 反斜杠写成双反斜杠 \\\\frac
+- 行列式和矩阵必须用 \\begin{vmatrix}...\\end{vmatrix} 等整体表示
+
+输出纯 JSON：
+{"correctAnswer":"","explanation":"","solutions":[{"name":"","steps":[],"answer":""}],"confidence":0.95}`;
+
+async function analyzeAnswerAndExplain(
+  ocrText: string,
+  userAnswer?: string,
+): Promise<{ correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number }> {
+  const apiKey = await getTextApiKey();
+  if (!apiKey) throw new AiApiError("text_key / vision_key 都未配置，请在设置页面填写", 500);
+
+  const model = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+
+  try {
+    const userText = userAnswer
+      ? `请基于以下题干文本推导答案。我的答案是「${userAnswer}」（仅供参考，可能错误，请独立推导）。\n\n题干：\n${ocrText}`
+      : `请基于以下题干文本推导答案。\n\n题干：\n${ocrText}`;
+
+    const body: any = {
+      model,
+      max_tokens: 8192,
+      temperature: 0,
+      messages: [
+        { role: "system", content: ANSWER_EXPLAIN_PROMPT },
+        { role: "user", content: userText },
+      ],
+    };
+    if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
+
+    const resp = await fetch(
+      await getApiUrl(model, "text_url"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new AiApiError(`答案推导 API error ${resp.status}: ${errText}`, resp.status);
+    }
+
+    const data = await resp.json();
+    const rawText: string = data.choices?.[0]?.message?.content || "";
+    // 文本模型通常不思考外溢，但保险起见也 strip 一下
+    const jsonStr = stripThinkingBeforeJson(rawText);
+    const parsed = parseAiJson(jsonStr);
+
+    return {
+      correctAnswer: parsed.correctAnswer || "",
+      explanation: parsed.explanation || "",
+      solutions: Array.isArray(parsed.solutions) ? parsed.solutions : [],
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.8,
+    };
+  } catch (err) {
+    if (err instanceof AiApiError || err instanceof AiParseError) throw err;
+    if ((err as Error).name === "AbortError") throw new AiTimeoutError("答案推导步骤超时");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Two-step orchestrator — replaces realAnalyze for the first-analysis pipeline
+// ---------------------------------------------------------------------------
+
+export async function analyzeImageTwoStep(
+  imageBase64: string,
+  mimeType: string,
+  chapterTree: ChapterRow[],
+  userAnswer?: string
+): Promise<AiAnalysisResult> {
+  if (!await loadSetting("vision_key", "DASHSCOPE_API_KEY") && !await loadSetting("text_key", "DEEPSEEK_API_KEY")) {
+    throw new AiApiError("API key 未配置，请在设置页面填写", 500);
+  }
+
+  // Step 1: OCR + classify (vision model + image)
+  // 第一步失败 = 整体失败（OCR 是后续所有步骤的前提，没有 OCR 无法解题）
+  console.log("[analyzeImageTwoStep] Step 1: OCR + classify");
+  const ocrResult = await analyzeOcrAndClassify(imageBase64, mimeType, chapterTree);
+
+  // Step 2: Answer + explain (text model, NO image — eliminates "看图猜答案")
+  // 第二步失败 = 只丢答案/解析，OCR 和分类仍可用，标记 error_reason 供前端触发重解析
+  console.log("[analyzeImageTwoStep] Step 2: Answer + explain (text-only)");
+  let answerResult: { correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number };
+  let step2Error: string | null = null;
+  try {
+    answerResult = await analyzeAnswerAndExplain(ocrResult.ocrText, userAnswer);
+  } catch (err) {
+    console.warn("[analyzeImageTwoStep] Step 2 failed, saving OCR only:", err);
+    answerResult = { correctAnswer: "", explanation: "", solutions: [], confidence: 0 };
+    step2Error = err instanceof Error ? err.message : "答案推导步骤失败";
+  }
+
+  // Combine into AiAnalysisResult
+  const result: AiAnalysisResult = {
+    ocrText: ocrResult.ocrText,
+    questionType: ocrResult.questionType,
+    classification: ocrResult.classification,
+    correctAnswer: answerResult.correctAnswer,
+    explanation: answerResult.explanation,
+    solutions: answerResult.solutions,
+    confidence: answerResult.confidence,
+    error_reason: step2Error || undefined,
+  };
+
+  const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY") || await loadSetting("text_key", "DEEPSEEK_API_KEY");
+
+  // Layer 1+3: auto-wrap bare LaTeX, then sanitize
+  result.ocrText = sanitizeLatex(autoWrapMathDelimiters(result.ocrText));
+  result.correctAnswer = sanitizeLatex(autoWrapMathDelimiters(result.correctAnswer));
+  result.explanation = sanitizeLatex(autoWrapMathDelimiters(result.explanation));
+  if (result.solutions) for (const sol of result.solutions) {
+    sol.name = sanitizeLatex(autoWrapMathDelimiters(sol.name || ""));
+    if (sol.steps) sol.steps = sol.steps.map(s => sanitizeLatex(autoWrapMathDelimiters(s)));
+    sol.answer = sanitizeLatex(autoWrapMathDelimiters(sol.answer || ""));
+  }
+
+  // Layer 2: AI LaTeX fixer (best-effort)
+  try {
+    await applyLatexFixer(result, apiKey);
+    // Final sanitize after AI fixer
+    result.ocrText = sanitizeLatex(result.ocrText);
+    result.correctAnswer = sanitizeLatex(result.correctAnswer);
+    result.explanation = sanitizeLatex(result.explanation);
+    if (result.solutions) for (const sol of result.solutions) {
+      sol.name = sanitizeLatex(sol.name || "");
+      if (sol.steps) sol.steps = sol.steps.map(sanitizeLatex);
+      sol.answer = sanitizeLatex(sol.answer || "");
+    }
+  } catch (err) {
+    console.warn("[analyzeImageTwoStep] LaTeX fixer failed, keeping raw:", err);
+  }
+
+  // AI dedup (best-effort)
+  try {
+    await dedupResult(result, apiKey);
+  } catch (err) {
+    console.warn("[analyzeImageTwoStep] dedup failed, keeping raw:", err);
+  }
+
+  // Strip question numbers from OCR text (e.g. "32. ", "【2021统考真题】")
+  if (result.ocrText) {
+    result.ocrText = result.ocrText
+      .replace(/^\d+\s*[\.\、\s]\s*/, "")
+      .replace(/^【[^】]*】\s*/, "")
+      .replace(/^\[[^\]]*\]\s*/, "")
+      .trim();
+  }
+
+  return result;
 }

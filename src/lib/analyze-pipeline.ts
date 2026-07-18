@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { analyzeWrongAnswerImage, autoWrapMathDelimiters } from "@/lib/ai";
+import { analyzeImageTwoStep, autoWrapMathDelimiters, AiAnalysisResult } from "@/lib/ai";
 import { queryOne, queryAll, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 
@@ -40,7 +40,15 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
   );
 
   try {
-    const result = await analyzeWrongAnswerImage(base64, mimeType, chapterTree, q.user_answer || undefined);
+    let result: AiAnalysisResult;
+    try {
+      // 新版两步拆分：视觉模型做 OCR+分类 → 文本模型做答案+解析
+      result = await analyzeImageTwoStep(base64, mimeType, chapterTree, q.user_answer || undefined);
+    } catch (err) {
+      // 兜底：两步中任意一步失败，都进入错误流程，记录错误原因
+      console.error("[performAnalysis] analyzeImageTwoStep failed for question", questionId, err);
+      throw err;
+    }
 
     const ocrText = autoWrapMathDelimiters(result.ocrText);
     const correctAnswer = autoWrapMathDelimiters(result.correctAnswer);
@@ -53,18 +61,27 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
 
     const cls = matchChapters(chapterTree, result.classification);
 
-    // 修复：所有字符串字段兜底为 ""，防止 undefined 传给 SQL 报 "Bind parameters must not contain undefined"
-    // 根因：agnes-2.0-flash 思考外溢时 JSON 可能缺字段或字段值为 undefined
+    // 兜底：所有字符串字段为 ""，防止 undefined 传给 SQL 报 "Bind parameters must not contain undefined"
     const safeOcr = ocrText || "";
     const safeAnswer = correctAnswer || "";
     const safeExpl = explanation || "";
     const safeSolutions = JSON.stringify(solutions || []);
     const safeType = result.questionType || "single_choice";
 
-    runAndSave(
-      `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready' WHERE id=?`,
-      [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, questionId]
-    ).catch(err => console.error("Failed to save AI analysis for question", questionId, err));
+    // 第二步失败但第一步成功：保留 OCR 入库，标记 error_reason 供前端触发重解析
+    // 第一步+第二步都成功：正常入库
+    if (result.error_reason) {
+      console.warn("[performAnalysis] Step 2 failed for question", questionId, "— saving OCR only:", result.error_reason);
+      runAndSave(
+        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='error', error_reason=? WHERE id=?`,
+        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, result.error_reason.slice(0, 200), questionId]
+      ).catch(err => console.error("Failed to save partial AI analysis for question", questionId, err));
+    } else {
+      runAndSave(
+        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
+        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, questionId]
+      ).catch(err => console.error("Failed to save AI analysis for question", questionId, err));
+    }
 
     return cls;
   } catch (err) {
