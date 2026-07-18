@@ -451,106 +451,139 @@ export default function UploadPage() {
   }
 
   // ---- IDLE / ERROR ----
+  const switchMode = (newMode: UploadMode) => {
+    if (mode === newMode) return;
+    // 清理旧模式状态
+    if (mode === "multiCrop") { multiCrops.forEach(c => URL.revokeObjectURL(c.preview)); setMultiCrops([]); }
+    if (mode === "twoPage") {
+      setPage1Blob(null); setPage2Blob(null);
+      if (page1Preview) URL.revokeObjectURL(page1Preview);
+      if (page2Preview) URL.revokeObjectURL(page2Preview);
+      setPage1Preview(null); setPage2Preview(null); setCurrentPage(1);
+    }
+    resetCropState();
+    setMode(newMode);
+  };
+
+  const modeLabel: Record<UploadMode, string> = { single: "单题", multiCrop: "多题框选", twoPage: "双页合并" };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: "1.25rem", fontWeight: 700, marginRight: ".25rem" }}>上传错题</h1>
-        <select value={bankId} onChange={e=>setBankId(parseInt(e.target.value))} style={{fontSize:".75rem", padding: ".3rem .5rem", height: "2rem"}}>
-          {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-        {/* Single page: exit any special mode */}
-        {(mode !== "single") && (
-          <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem" }} onClick={() => {
-            if (mode === "multiCrop") {
-              multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
-              setMultiCrops([]);
-              setMode("single");
-            }
-            if (mode === "twoPage") {
-              setMode("single");
-              setPage1Blob(null); setPage2Blob(null);
-              if (page1Preview) URL.revokeObjectURL(page1Preview);
-              if (page2Preview) URL.revokeObjectURL(page2Preview);
-              setPage1Preview(null); setPage2Preview(null); setCurrentPage(1);
-            }
-            resetCropState();
-          }}>
-            {mode === "multiCrop" ? "退出多题" : "退出双页"}
+      {/* 三段式模式选择 Tab */}
+      <div style={{
+        display: "flex",
+        background: "#f5f5f5",
+        borderRadius: "10px",
+        padding: "3px",
+        gap: "2px",
+      }}>
+        {(["single", "multiCrop", "twoPage"] as UploadMode[]).map(m => (
+          <button
+            key={m}
+            onClick={() => switchMode(m)}
+            style={{
+              flex: 1,
+              padding: ".55rem 0",
+              border: "none",
+              borderRadius: "8px",
+              fontSize: ".9rem",
+              fontWeight: mode === m ? 700 : 400,
+              background: mode === m ? "#fff" : "transparent",
+              color: mode === m ? "#111" : "#999",
+              cursor: "pointer",
+              boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,.08)" : "none",
+              transition: "all .2s",
+            }}
+          >
+            {modeLabel[m]}
           </button>
-        )}
-        {/* Multi-crop toggle — 固定宽度，避免激活时图标导致按钮变宽 */}
-        <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem", minWidth: "5.5rem" }} onClick={() => {
-          if (mode === "multiCrop") {
-            setMode("single");
-            multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
-            setMultiCrops([]);
-            resetCropState();
-          } else {
-            setMode("multiCrop");
-            if (mode === "twoPage") {
-              setMode("single");
-              setPage1Blob(null); setPage2Blob(null);
-              if (page1Preview) URL.revokeObjectURL(page1Preview);
-              if (page2Preview) URL.revokeObjectURL(page2Preview);
-              setPage1Preview(null); setPage2Preview(null); setCurrentPage(1);
-            }
-            resetCropState();
-          }
-        }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: ".25rem" }}>
-            多题框选
-            <span style={{ width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: mode === "multiCrop" ? 1 : 0 }}>
-              <IconCheck size={14} />
-            </span>
-          </span>
-        </button>
-        {/* Two-page toggle — 固定宽度 */}
-        <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem", minWidth: "5.5rem" }} onClick={() => {
-          if (mode === "twoPage") {
-            setMode("single");
-            setPage1Blob(null); setPage2Blob(null);
-            if (page1Preview) URL.revokeObjectURL(page1Preview);
-            if (page2Preview) URL.revokeObjectURL(page2Preview);
-            setPage1Preview(null); setPage2Preview(null); setCurrentPage(1);
-            resetCropState();
-          } else {
-            setMode("twoPage");
-            if (mode === "multiCrop") {
-              setMode("single");
-              multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
-              setMultiCrops([]);
-            }
-            resetCropState();
-          }
-        }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: ".25rem" }}>
-            双页合成
-            <span style={{ width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: mode === "twoPage" ? 1 : 0 }}>
-              <IconCheck size={14} />
-            </span>
-          </span>
-        </button>
+        ))}
       </div>
-      {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
 
+      {/* 题库选择（小字） */}
+      {banks.length > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
+          <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>题库：</span>
+          <select value={bankId} onChange={e=>setBankId(parseInt(e.target.value))} style={{fontSize:".75rem", padding: ".2rem .4rem", height: "1.75rem", borderRadius: "6px", border: "1px solid #ddd"}}>
+            {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+      )}
+
+      {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)", margin: 0 }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
+
+      {/* 大虚线上传区 */}
+      <div
+        onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => fileInputRef.current?.click()}
+        style={{
+          border: "2px dashed #ddd",
+          borderRadius: "12px",
+          textAlign: "center",
+          cursor: "pointer",
+          padding: "3rem 1rem",
+          background: "#fafafa",
+        }}
+      >
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} hidden />
+        <div style={{
+          width: "56px", height: "56px", borderRadius: "50%", background: "#f0f0f0",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto .75rem", color: "#999",
+        }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div style={{ fontSize: "1rem", fontWeight: 500, color: "#333" }}>点击或拖拽图片到这里</div>
+        <div style={{ fontSize: ".8rem", color: "#999", marginTop: ".35rem" }}>PNG / JPG, 最大 10MB</div>
+      </div>
+
+      {/* 底部大按钮：拍照 + 从相册选择 */}
       <div style={{ display: "flex", gap: ".75rem" }}>
-        <button className="btn btn-primary" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem" }} onClick={() => cameraInputRef.current?.click()}><IconCamera size={16} /> 拍照</button>
-        <button className="btn" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem" }} onClick={() => fileInputRef.current?.click()}><IconImage size={16} /> 选择图片</button>
+        <button
+          onClick={() => cameraInputRef.current?.click()}
+          style={{
+            flex: 1,
+            padding: ".85rem 0",
+            border: "none",
+            borderRadius: "10px",
+            fontSize: "1rem",
+            fontWeight: 600,
+            background: "#111",
+            color: "#fff",
+            cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+          </svg>
+          拍照
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            flex: 1,
+            padding: ".85rem 0",
+            border: "1.5px solid #ddd",
+            borderRadius: "10px",
+            fontSize: "1rem",
+            fontWeight: 500,
+            background: "#fff",
+            color: "#333",
+            cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+          从相册选择
+        </button>
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileInput} hidden />
       </div>
 
-      <div
-        onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => fileInputRef.current?.click()}
-        className="card" style={{ borderStyle: "dashed", textAlign: "center", cursor: "pointer" }}
-      >
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} hidden />
-        <div style={{ color: "var(--text-muted)", padding: "1.5rem 0" }}>
-          <div style={{ fontSize: "2rem", marginBottom: ".5rem", display: "flex", justifyContent: "center" }}><IconCamera size={32} /></div>
-          <div style={{ fontSize: ".875rem" }}>拖拽图片到这里</div>
-          <div style={{ fontSize: ".75rem", marginTop: ".25rem" }}>或点击选择 (PNG / JPG, 最大 10MB)</div>
-        </div>
-      </div>
-
+      {/* 你的答案 */}
       <div className="card">
         <label style={{ fontSize: ".875rem", fontWeight: 500, display: "block", marginBottom: ".25rem" }}>你的答案（选填）</label>
         <input type="text" value={userAnswer} onChange={(e) => setUserAnswer(e.target.value)} placeholder="例如：C 或 False" style={{ width: "100%", boxSizing: "border-box" }} />
