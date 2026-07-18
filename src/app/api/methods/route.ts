@@ -5,18 +5,51 @@ import { validateImageFile, saveUploadData, deleteUploadFile } from "@/lib/uploa
 import sharp from "sharp";
 
 // GET /api/methods?chapter_id=1
+// chapter_id 可为任意层级（科目/章节/知识点），后端会递归收集所有后代节点的 id
+// 因为 solution_methods.chapter_id 存的是三级知识点 id，
+// 若只精确匹配则传入一级/二级时会查不到数据
 export async function GET(req: NextRequest) {
   await initSchema();
   const { searchParams } = new URL(req.url);
   const chapterId = searchParams.get("chapter_id");
 
-  const sql = `SELECT m.*, c.name as chapter_name, c2.name as subject_name
-    FROM solution_methods m
-    LEFT JOIN chapters c ON m.chapter_id = c.id
-    LEFT JOIN chapters c2 ON c.parent_id = c2.id
-    ${chapterId ? "WHERE m.chapter_id = ?" : ""}
-    ORDER BY m.created_at DESC`;
-  const rows = await queryAll(sql, chapterId ? [parseInt(chapterId)] : []);
+  if (!chapterId) {
+    const rows = await queryAll(`SELECT m.*, c.name as chapter_name, c2.name as subject_name
+      FROM solution_methods m
+      LEFT JOIN chapters c ON m.chapter_id = c.id
+      LEFT JOIN chapters c2 ON c.parent_id = c2.id
+      ORDER BY m.created_at DESC`, []);
+    return NextResponse.json(rows);
+  }
+
+  // 递归收集所有后代（含自身）章节 id
+  const rootId = parseInt(chapterId);
+  const allChapters = await queryAll<{ id: number; parent_id: number | null }>(
+    "SELECT id, parent_id FROM chapters", []
+  );
+  const idSet = new Set<number>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const c of allChapters) {
+      if (c.parent_id !== null && idSet.has(c.parent_id) && !idSet.has(c.id)) {
+        idSet.add(c.id);
+        changed = true;
+      }
+    }
+  }
+  const idList = Array.from(idSet);
+
+  const placeholders = idList.map(() => "?").join(",");
+  const rows = await queryAll(
+    `SELECT m.*, c.name as chapter_name, c2.name as subject_name
+      FROM solution_methods m
+      LEFT JOIN chapters c ON m.chapter_id = c.id
+      LEFT JOIN chapters c2 ON c.parent_id = c2.id
+      WHERE m.chapter_id IN (${placeholders})
+      ORDER BY m.created_at DESC`,
+    idList
+  );
   return NextResponse.json(rows);
 }
 
