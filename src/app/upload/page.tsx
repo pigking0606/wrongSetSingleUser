@@ -472,7 +472,7 @@ export default function UploadPage() {
       {/* 三段式模式选择 Tab */}
       <div style={{
         display: "flex",
-        background: "#f5f5f5",
+        background: "var(--bg-hover)",
         borderRadius: "10px",
         padding: "3px",
         gap: "2px",
@@ -488,10 +488,10 @@ export default function UploadPage() {
               borderRadius: "8px",
               fontSize: ".9rem",
               fontWeight: mode === m ? 700 : 400,
-              background: mode === m ? "#fff" : "transparent",
-              color: mode === m ? "#111" : "#999",
+              background: mode === m ? "var(--bg-card)" : "transparent",
+              color: mode === m ? "var(--text)" : "var(--text-muted)",
               cursor: "pointer",
-              boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,.08)" : "none",
+              boxShadow: mode === m ? "var(--shadow)" : "none",
               transition: "all .2s",
             }}
           >
@@ -510,32 +510,36 @@ export default function UploadPage() {
         </div>
       )}
 
-      {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)", margin: 0 }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
+      <p style={{ fontSize: ".8rem", color: "var(--text-muted)", margin: 0 }}>
+        {mode === "single" && "单题模式：选择或拍摄一道题目，裁剪后上传分析"}
+        {mode === "multiCrop" && "多题模式：在同一张图上依次框选多道题目，分别上传分析"}
+        {mode === "twoPage" && "双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传"}
+      </p>
 
       {/* 大虚线上传区 */}
       <div
         onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onClick={() => fileInputRef.current?.click()}
         style={{
-          border: "2px dashed #ddd",
+          border: "2px dashed var(--border)",
           borderRadius: "12px",
           textAlign: "center",
           cursor: "pointer",
           padding: "3rem 1rem",
-          background: "#fafafa",
+          background: "var(--bg-card)",
         }}
       >
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileInput} hidden />
         <div style={{
-          width: "56px", height: "56px", borderRadius: "50%", background: "#f0f0f0",
+          width: "56px", height: "56px", borderRadius: "50%", background: "var(--bg-hover)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          margin: "0 auto .75rem", color: "#999",
+          margin: "0 auto .75rem", color: "var(--text-muted)",
         }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
         </div>
-        <div style={{ fontSize: "1rem", fontWeight: 500, color: "#333" }}>点击或拖拽图片到这里</div>
-        <div style={{ fontSize: ".8rem", color: "#999", marginTop: ".35rem" }}>PNG / JPG, 最大 10MB</div>
+        <div style={{ fontSize: "1rem", fontWeight: 500, color: "var(--text)" }}>点击或拖拽图片到这里</div>
+        <div style={{ fontSize: ".8rem", color: "var(--text-muted)", marginTop: ".35rem" }}>PNG / JPG, 最大 10MB</div>
       </div>
 
       {/* 底部大按钮：拍照 + 从相册选择 */}
@@ -549,8 +553,8 @@ export default function UploadPage() {
             borderRadius: "10px",
             fontSize: "1rem",
             fontWeight: 600,
-            background: "#111",
-            color: "#fff",
+            background: "var(--accent)",
+            color: "var(--accent-text)",
             cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem",
           }}
@@ -565,12 +569,12 @@ export default function UploadPage() {
           style={{
             flex: 1,
             padding: ".85rem 0",
-            border: "1.5px solid #ddd",
+            border: "1.5px solid var(--border)",
             borderRadius: "10px",
             fontSize: "1rem",
             fontWeight: 500,
-            background: "#fff",
-            color: "#333",
+            background: "var(--bg-card)",
+            color: "var(--text)",
             cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem",
           }}
