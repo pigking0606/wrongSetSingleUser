@@ -34,12 +34,11 @@ export async function POST(req: NextRequest) {
     const saved = saveUploadData(finalBuffer as Buffer, ".jpg");
     publicUrl = saved.publicUrl;
 
-    // BUGFIX: 之前 VALUES 列数与列名不匹配（11列10值），且把 'pending' 写入 question_type/bank_id、
-    // bankId 写入 status、丢失 original_filename。加上 runAndSave 未 await，SQL 异常被吞，
-    // 前端收到 200 OK 但实际未入库 → 题库永远为空。
+    // chapter_id 用 NULL：用户上传时未选章节，由 AI 分析后回填（performAnalysis 中 UPDATE chapter_id=?）
+    // 之前硬编码 chapter_id=1 但服务器 chapters 表无 id=1，触发外键约束失败 ER_NO_REFERENCED_ROW_2
     const insertResult = await runAndSave(
       `INSERT INTO questions (chapter_id, image_path, ocr_text, question_type, correct_answer, explanation, ai_solutions, user_answer, bank_id, status, original_filename)
-       VALUES (1, ?, '', '', '', '', '[]', ?, ?, 'pending', ?)`,
+       VALUES (NULL, ?, '', '', '', '', '[]', ?, ?, 'pending', ?)`,
       [publicUrl, userAnswer || null, bankId, image.name || null]
     );
 

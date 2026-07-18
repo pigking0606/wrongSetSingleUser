@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { queryAll } from "./db";
 
 export async function initSchema() {
   const db = await getDb();
@@ -16,15 +17,16 @@ export async function initSchema() {
       extra_text_1 TEXT, extra_text_2 TEXT, extra_int_1 INT DEFAULT 0,
       FOREIGN KEY (parent_id) REFERENCES chapters(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // chapter_id 允许 NULL：上传时用户未选章节，由 AI 分析后回填；外键 ON DELETE SET NULL：删章节不级联删题目
     `CREATE TABLE IF NOT EXISTS questions (
-      id INT AUTO_INCREMENT PRIMARY KEY, chapter_id INT NOT NULL, bank_id INT DEFAULT 1,
+      id INT AUTO_INCREMENT PRIMARY KEY, chapter_id INT, bank_id INT DEFAULT 1,
       image_path TEXT, ocr_text LONGTEXT, question_type VARCHAR(50) DEFAULT 'single_choice',
       correct_answer TEXT, explanation LONGTEXT, ai_solutions LONGTEXT,
       user_answer TEXT, ai_raw_response LONGTEXT, original_filename VARCHAR(500),
       error_reason TEXT, status VARCHAR(50) DEFAULT 'ready', external_id VARCHAR(255),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       extra_text_1 TEXT, extra_text_2 TEXT, extra_int_1 INT DEFAULT 0, extra_int_2 INT DEFAULT 0,
-      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
+      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS review_records (
       id INT AUTO_INCREMENT PRIMARY KEY, question_id INT NOT NULL,
@@ -76,6 +78,32 @@ export async function initSchema() {
       // MySQL error code 1060: Duplicate column name — expected, safe to ignore
       if (!/Duplicate column|1060/i.test(msg)) console.error("migration error:", m.desc, msg);
     }
+  }
+
+  // questions.chapter_id 迁移：NOT NULL → NULL + 外键 ON DELETE CASCADE → ON DELETE SET NULL
+  // 上传时 chapter_id 暂为 NULL（用户未选章节），AI 分析后回填；删除章节时题目保留不被级联删除
+  // 步骤：1. 查现有外键 2. DROP 外键 3. MODIFY 允许 NULL 4. ADD 新外键（ON DELETE SET NULL）
+  try {
+    const fks = await queryAll<{ CONSTRAINT_NAME: string; DELETE_RULE: string }>(
+      `SELECT rc.CONSTRAINT_NAME, rc.DELETE_RULE
+       FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+       WHERE rc.CONSTRAINT_SCHEMA = DATABASE() AND rc.TABLE_NAME = 'questions'`
+    );
+    for (const fk of fks) {
+      try {
+        await db.execute(`ALTER TABLE questions DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
+      } catch (e) { /* 静默：外键可能已不存在 */ }
+    }
+    try { await db.execute("ALTER TABLE questions MODIFY COLUMN chapter_id INT NULL"); } catch (e) { /* 静默 */ }
+    try {
+      await db.execute("ALTER TABLE questions ADD CONSTRAINT questions_chapter_fk FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL");
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      // 1826 = Duplicate foreign key constraint exists — 期望，可忽略
+      if (!/Duplicate foreign key|1826/i.test(msg)) console.error("[migration] questions FK add error:", msg);
+    }
+  } catch (e) {
+    console.error("[migration] questions FK migration error:", (e as Error).message);
   }
 
   await db.execute("INSERT IGNORE INTO learning_progress (id, content) VALUES (1, '')");

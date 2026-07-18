@@ -453,14 +453,14 @@ export default function UploadPage() {
   // ---- IDLE / ERROR ----
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: ".75rem" }}>
-        <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>上传错题</h1>
-        <select value={bankId} onChange={e=>setBankId(parseInt(e.target.value))} style={{fontSize:".75rem"}}>
+      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 700, marginRight: ".25rem" }}>上传错题</h1>
+        <select value={bankId} onChange={e=>setBankId(parseInt(e.target.value))} style={{fontSize:".75rem", padding: ".3rem .5rem", height: "2rem"}}>
           {banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {/* Single page: exit any special mode */}
         {(mode !== "single") && (
-          <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
+          <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem" }} onClick={() => {
             if (mode === "multiCrop") {
               multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
               setMultiCrops([]);
@@ -478,8 +478,8 @@ export default function UploadPage() {
             {mode === "multiCrop" ? "退出多题" : "退出双页"}
           </button>
         )}
-        {/* Multi-crop toggle */}
-        <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
+        {/* Multi-crop toggle — 固定宽度，避免激活时图标导致按钮变宽 */}
+        <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem", minWidth: "5.5rem" }} onClick={() => {
           if (mode === "multiCrop") {
             setMode("single");
             multiCrops.forEach(c => URL.revokeObjectURL(c.preview));
@@ -497,10 +497,15 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "multiCrop" ? <span>多题框选 <IconCheck size={14} /></span> : "多题框选"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: ".25rem" }}>
+            多题框选
+            <span style={{ width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: mode === "multiCrop" ? 1 : 0 }}>
+              <IconCheck size={14} />
+            </span>
+          </span>
         </button>
-        {/* Two-page toggle */}
-        <button className="btn" style={{ fontSize: ".75rem" }} onClick={() => {
+        {/* Two-page toggle — 固定宽度 */}
+        <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem", height: "2rem", minWidth: "5.5rem" }} onClick={() => {
           if (mode === "twoPage") {
             setMode("single");
             setPage1Blob(null); setPage2Blob(null);
@@ -518,7 +523,12 @@ export default function UploadPage() {
             resetCropState();
           }
         }}>
-          {mode === "twoPage" ? <span>双页合成 <IconCheck size={14} /></span> : "双页合成"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: ".25rem" }}>
+            双页合成
+            <span style={{ width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: mode === "twoPage" ? 1 : 0 }}>
+              <IconCheck size={14} />
+            </span>
+          </span>
         </button>
       </div>
       {mode === "twoPage" && <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>双页模式：拍第一页裁剪 → 拍第二页裁剪 → 自动合并上传</p>}
