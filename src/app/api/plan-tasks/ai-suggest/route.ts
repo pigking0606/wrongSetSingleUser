@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 60000);
+    setTimeout(() => ctrl.abort(), 120000);
 
     const prompt = `你是考研备考规划助手。请根据学生的学习情况，为今天（${targetDate}）建议3-5个具体任务。
 
@@ -157,7 +157,7 @@ JSON格式：
 
     const body: any = {
       model,
-      max_tokens: 2048,
+      max_tokens: 8192,
       temperature: 0.3,
       messages: [{ role: "user", content: prompt }],
     };
