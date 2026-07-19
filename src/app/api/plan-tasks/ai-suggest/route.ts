@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 20000);
+    setTimeout(() => ctrl.abort(), 60000);
 
     const prompt = `你是考研备考规划助手。请根据学生的学习情况，为今天（${targetDate}）建议3-5个具体任务。
 
@@ -152,22 +152,37 @@ JSON格式：
 }`;
 
     const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
-    const resp = await fetch(await getTextApiUrl(), {
+    const apiUrl = await getTextApiUrl();
+    console.log(`[ai-suggest] model=${model} url=${apiUrl} promptLen=${prompt.length}`);
+
+    const body: any = {
+      model,
+      max_tokens: 2048,
+      temperature: 0.3,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
+    const resp = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        max_tokens: 2048,
-        temperature: 0.3,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     });
-    if (!resp.ok) throw new Error(`AI error: ${resp.status}`);
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => "");
+      throw new Error(`AI error: ${resp.status} ${errBody.slice(0, 200)}`);
+    }
     const data = await resp.json();
-    const raw = (data.choices?.[0]?.message?.content || "")
+    let raw = (data.choices?.[0]?.message?.content || "")
       .replace(/^```[\s\S]*?\n/, "").replace(/\n```\s*$/, "").trim();
-    const result = JSON.parse(raw.startsWith("{") ? raw : raw.slice(raw.indexOf("{")));
+    // Strip thinking content if model leaks it (agnes-2.0-flash etc.)
+    const markerIdx = raw.lastIndexOf('{"tasks"');
+    if (markerIdx >= 0) raw = raw.slice(markerIdx);
+    else if (raw.indexOf("{") !== raw.lastIndexOf("{")) {
+      raw = raw.slice(raw.lastIndexOf("{"));
+    }
+    console.log(`[ai-suggest] rawLen=${raw.length} first200=${raw.slice(0, 200)}`);
+    const result = JSON.parse(raw);
     return NextResponse.json(result);
   } catch (err) {
     console.error("AI suggest error:", err);
