@@ -159,7 +159,10 @@ JSON格式：
       model,
       max_tokens: 8192,
       temperature: 0.3,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: "你是任务规划助手。思考过程可以内部进行，但输出的第一个字符必须是 `{`，最后一个字符必须是 `}`，中间是完整的 JSON。禁止在 JSON 前后输出任何文字、解释、推理、思考过程。" },
+        { role: "user", content: prompt },
+      ],
     };
     if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
     const resp = await fetch(apiUrl, {
@@ -173,16 +176,46 @@ JSON格式：
       throw new Error(`AI error: ${resp.status} ${errBody.slice(0, 200)}`);
     }
     const data = await resp.json();
-    let raw = (data.choices?.[0]?.message?.content || "")
+    const rawFull = (data.choices?.[0]?.message?.content || "")
       .replace(/^```[\s\S]*?\n/, "").replace(/\n```\s*$/, "").trim();
-    // Strip thinking content if model leaks it (agnes-2.0-flash etc.)
-    const markerIdx = raw.lastIndexOf('{"tasks"');
-    if (markerIdx >= 0) raw = raw.slice(markerIdx);
-    else if (raw.indexOf("{") !== raw.lastIndexOf("{")) {
-      raw = raw.slice(raw.lastIndexOf("{"));
+
+    // Strip thinking content — deepseek-v4-pro / agnes 等思考模型会把推理写进 content
+    // 找最后一个含 "tasks" 的顶层 { 位置，然后用括号匹配提取完整 JSON
+    let jsonStr = "";
+    const tasksIdx = rawFull.lastIndexOf('"tasks"');
+    if (tasksIdx >= 0) {
+      // 往前找最近的 { 作为起点
+      let braceStart = rawFull.lastIndexOf("{", tasksIdx);
+      if (braceStart >= 0) {
+        // 括号匹配找终点（考虑字符串内的 { } 需要跳过）
+        let depth = 0;
+        let inStr = false;
+        let escape = false;
+        let end = -1;
+        for (let i = braceStart; i < rawFull.length; i++) {
+          const c = rawFull[i];
+          if (escape) { escape = false; continue; }
+          if (c === "\\") { escape = true; continue; }
+          if (c === '"') { inStr = !inStr; continue; }
+          if (inStr) continue;
+          if (c === "{") depth++;
+          else if (c === "}") {
+            depth--;
+            if (depth === 0) { end = i; break; }
+          }
+        }
+        if (end > braceStart) jsonStr = rawFull.slice(braceStart, end + 1);
+      }
     }
-    console.log(`[ai-suggest] rawLen=${raw.length} first200=${raw.slice(0, 200)}`);
-    const result = JSON.parse(raw);
+    if (!jsonStr) {
+      // 兜底：取最后一个 { 到最后一个 }
+      const s = rawFull.lastIndexOf("{");
+      const e = rawFull.lastIndexOf("}");
+      if (s >= 0 && e > s) jsonStr = rawFull.slice(s, e + 1);
+    }
+    console.log(`[ai-suggest] rawFullLen=${rawFull.length} jsonLen=${jsonStr.length} jsonFirst200=${jsonStr.slice(0, 200)}`);
+    if (!jsonStr) throw new Error("AI 未返回有效 JSON");
+    const result = JSON.parse(jsonStr);
     return NextResponse.json(result);
   } catch (err) {
     console.error("AI suggest error:", err);
