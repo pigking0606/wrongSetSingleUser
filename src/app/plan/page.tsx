@@ -166,6 +166,30 @@ export default function PlanPage() {
     setShowHistory(!showHistory);
   };
 
+  // 完成度滑块：onChange 只更新前端显示，松开后延迟 0.4s 才提交
+  // 提交时若前端值又变了（用户继续拖），返回后用最新值重发
+  const pendingPctRef = useRef<Record<number, number>>({});
+  const commitTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const tasksRef = useRef<PlanTask[]>([]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  // onChange：仅更新前端显示，记录待提交值，不发请求
+  const handlePctChange = (task: PlanTask, pct: number) => {
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: pct } : t));
+    pendingPctRef.current[task.id] = pct;
+  };
+
+  // 松开时：等 0.4s 再提交（防止松开瞬间还在拖动状态）
+  const handlePctCommit = (task: PlanTask) => {
+    if (commitTimerRef.current[task.id]) clearTimeout(commitTimerRef.current[task.id]);
+    commitTimerRef.current[task.id] = setTimeout(() => {
+      const targetPct = pendingPctRef.current[task.id];
+      if (targetPct === undefined) return;
+      delete pendingPctRef.current[task.id];
+      void setCompletion(task, targetPct);
+    }, 400);
+  };
+
   const setCompletion = async (task: PlanTask, pct: number) => {
     const prevPct = task.completion_pct;
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: pct } : t));
@@ -178,8 +202,16 @@ export default function PlanPage() {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: prevPct } : t));
         return;
       }
-      // 同步服务器真实状态，防止前端 100% 但数据库未更新导致刷新后回退
       const data = await res.json().catch(() => ({}));
+      // 关键：返回时检查前端最新值是否还是 pct
+      // 如果用户在请求飞行期间又拖动了，用最新值重发请求
+      const currentFrontendPct = tasksRef.current.find(t => t.id === task.id)?.completion_pct;
+      if (typeof currentFrontendPct === "number" && currentFrontendPct !== pct) {
+        console.log("[setCompletion] value changed during request, retrying", pct, "→", currentFrontendPct);
+        void setCompletion(task, currentFrontendPct);
+        return;
+      }
+      // 同步服务器真实状态
       if (typeof data.completion_pct === "number") {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: data.completion_pct } : t));
       }
@@ -468,7 +500,9 @@ export default function PlanPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
                   <span style={{ fontSize: ".7rem", color: "var(--text-muted)", minWidth: "2.2rem" }}>完成</span>
                   <input type="range" min={0} max={100} step={10} value={pct} disabled={!authed || !isToday}
-                    onChange={e => setCompletion(t, parseInt(e.target.value))}
+                    onChange={e => handlePctChange(t, parseInt(e.target.value))}
+                    onPointerUp={() => handlePctCommit(t)}
+                    onTouchEnd={() => handlePctCommit(t)}
                     style={{ flex: 1, accentColor: pct >= 100 ? "var(--green-text)" : "var(--accent)", height: "4px" }} />
                   <span style={{ fontSize: ".75rem", fontWeight: 600, minWidth: "2.5rem", textAlign: "right", color: pct >= 100 ? "var(--green-text)" : pct > 0 ? "var(--text)" : "var(--text-muted)" }}>{pct}%</span>
                 </div>
