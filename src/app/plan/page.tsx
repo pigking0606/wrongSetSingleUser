@@ -167,13 +167,32 @@ export default function PlanPage() {
   };
 
   const setCompletion = async (task: PlanTask, pct: number) => {
+    const prevPct = task.completion_pct;
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: pct } : t));
-    await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: task.id, completion_pct: pct }) });
-    loadStats();
-    // Auto-stop timer if task is completed while being timed
-    if (pct >= 100 && globalTimer.taskId === task.id && (globalTimer.running || globalTimer.paused)) {
-      const sec = globalTimer.stop();
-      toast(`任务完成，计时 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
+    try {
+      const res = await fetch("/api/plan-tasks", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: task.id, completion_pct: pct }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[setCompletion] save failed", task.id, pct, err);
+        toast(err.error || "保存失败，已还原");
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: prevPct } : t));
+        return;
+      }
+      // 同步服务器真实状态，防止前端 100% 但数据库未更新导致刷新后回退
+      const data = await res.json().catch(() => ({}));
+      if (typeof data.completion_pct === "number") {
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: data.completion_pct } : t));
+      }
+      loadStats();
+      // Auto-stop timer if task is completed while being timed
+      if (pct >= 100 && globalTimer.taskId === task.id && (globalTimer.running || globalTimer.paused)) {
+        const sec = globalTimer.stop();
+        toast(`任务完成，计时 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
+      }
+    } catch (e) {
+      console.error("[setCompletion] network error", e);
+      toast("网络错误，已还原");
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completion_pct: prevPct } : t));
     }
   };
 

@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 import MathText from "@/lib/math-text";
+import FlowchartEditor from "@/lib/flowchart-editor";
 
 interface Chapter { id: number; name: string; level: number; parent_id: number | null; }
 interface Method {
@@ -65,6 +66,7 @@ export default function MethodsPage() {
   const [saving, setSaving] = useState(false);
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [showFlowchart, setShowFlowchart] = useState(false);
 
   const toast = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(""), 3500); };
 
@@ -169,6 +171,18 @@ export default function MethodsPage() {
     addImagesToList(setFormSolutionImages, files, 5, "解法流程图");
   const addExampleImages = (files: FileList | null) =>
     addImagesToList(setFormExampleImages, files, 10, "例题图片");
+
+  // 流程图编辑器保存的 PNG blob 加入解法流程图列表
+  const handleFlowchartSave = useCallback((pngBlob: Blob) => {
+    setFormSolutionImages(prev => {
+      if (prev.length >= 5) { toast("解法流程图最多 5 张，请先删除一张"); return prev; }
+      const file = new File([pngBlob], `flowchart-${Date.now()}.png`, { type: "image/png" });
+      const preview = URL.createObjectURL(pngBlob);
+      return [...prev, { file, preview, url: undefined }];
+    });
+    setShowFlowchart(false);
+    toast("流程图已加入解法流程图");
+  }, []);
   const removeSolutionImage = (idx: number) => removeImageFromList(setFormSolutionImages, idx);
   const removeExampleImage = (idx: number) => removeImageFromList(setFormExampleImages, idx);
 
@@ -375,6 +389,12 @@ export default function MethodsPage() {
               ① 题型通用解法
             </div>
             {renderImageGrid(formSolutionImages, addSolutionImages, removeSolutionImage, 5, "解法流程图")}
+            <div style={{ display: "flex", gap: ".4rem", marginTop: ".3rem", flexWrap: "wrap" }}>
+              <button className="btn" onClick={() => setShowFlowchart(true)}
+                style={{ fontSize: ".75rem", padding: ".3rem .6rem", display: "flex", alignItems: "center", gap: ".25rem" }}>
+                <IconImage size={13} /> 绘制流程图
+              </button>
+            </div>
             <p style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: ".3rem 0" }}>
               上传解题流程图，AI 会据此自动生成下方解法文字。要求简洁、与图片流程一致。
             </p>
@@ -402,6 +422,14 @@ export default function MethodsPage() {
               style={{ fontSize: ".8rem", padding: ".35rem .8rem" }}>{saving ? "保存中..." : "保存"}</button>
           </div>
         </div>
+      )}
+
+      {/* 流程图绘制模态框 */}
+      {showFlowchart && (
+        <FlowchartEditor
+          onClose={() => setShowFlowchart(false)}
+          onSave={handleFlowchartSave}
+        />
       )}
 
       {/* List */}

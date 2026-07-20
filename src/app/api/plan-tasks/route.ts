@@ -161,7 +161,17 @@ export async function PUT(req: NextRequest) {
   if (!sets.length) return NextResponse.json({ error: "no fields" }, { status: 400 });
 
   vals.push(id);
-  await runAndSave(`UPDATE plan_tasks SET ${sets.join(",")} WHERE id=?`, vals);
+  try {
+    await runAndSave(`UPDATE plan_tasks SET ${sets.join(",")} WHERE id=?`, vals);
+  } catch (e) {
+    console.error("[plan-tasks PUT] UPDATE failed", { id, completion_pct, error: e });
+    return NextResponse.json({ error: "数据库更新失败" }, { status: 500 });
+  }
+  // 返回真实保存的 completion_pct，前端可校验
+  if (completion_pct !== undefined) {
+    const row = await queryOne<{ completion_pct: number }>("SELECT completion_pct FROM plan_tasks WHERE id=?", [id]);
+    return NextResponse.json({ ok: true, completion_pct: row?.completion_pct ?? completion_pct });
+  }
   return NextResponse.json({ ok: true });
 }
 
