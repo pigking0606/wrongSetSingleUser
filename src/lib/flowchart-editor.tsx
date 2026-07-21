@@ -20,6 +20,8 @@ interface FlowEdge {
   from: string;
   to: string;
   label: string;
+  fromAnchor: AnchorPos;  // 用户拖拽起点锚点
+  toAnchor: AnchorPos;    // 目标节点上离松开位置最近的锚点
 }
 
 interface Props {
@@ -57,6 +59,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
   // 拉线状态
   const [drawingEdge, setDrawingEdge] = useState<{
     fromId: string;
+    fromAnchor: AnchorPos;  // 用户拖拽起点的锚点
     fromX: number;
     fromY: number;
     curX: number;
@@ -105,6 +108,20 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     }
   };
 
+  // 计算节点上离给定坐标最近的锚点
+  const nearestAnchor = (node: FlowNode, x: number, y: number): AnchorPos => {
+    const list: { pos: AnchorPos; x: number; y: number }[] = (["top", "bottom", "left", "right"] as AnchorPos[]).map(p => {
+      const a = getAnchorPos(node, p);
+      return { pos: p, x: a.x, y: a.y };
+    });
+    let best = list[0], bestD = Infinity;
+    for (const a of list) {
+      const d = (a.x - x) ** 2 + (a.y - y) ** 2;
+      if (d < bestD) { bestD = d; best = a; }
+    }
+    return best.pos;
+  };
+
   // 锚点按下：开始拉线
   const onAnchorMouseDown = (e: React.MouseEvent, node: FlowNode, pos: AnchorPos) => {
     e.stopPropagation();
@@ -114,6 +131,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     if (!rect) return;
     setDrawingEdge({
       fromId: node.id,
+      fromAnchor: pos,
       fromX: x,
       fromY: y,
       curX: e.clientX - rect.left,
@@ -140,14 +158,21 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       const nodeEl = el?.closest("[data-node-id]") as HTMLElement | null;
       const targetId = nodeEl?.dataset.nodeId || null;
       if (targetId && targetId !== d.fromId) {
-        const fromNode = nodesRef.current.find(n => n.id === d.fromId);
-        const defaultLabel = fromNode?.shape === "diamond" ? "是" : "";
-        setEdges(prev => [...prev, {
-          id: `e${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          from: d.fromId,
-          to: targetId,
-          label: defaultLabel,
-        }]);
+        const targetNode = nodesRef.current.find(n => n.id === targetId);
+        if (targetNode) {
+          const fromNode = nodesRef.current.find(n => n.id === d.fromId);
+          const defaultLabel = fromNode?.shape === "diamond" ? "是" : "";
+          // 目标节点上离松开位置最近的锚点
+          const toAnchor = nearestAnchor(targetNode, d.curX, d.curY);
+          setEdges(prev => [...prev, {
+            id: `e${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            from: d.fromId,
+            to: targetId,
+            label: defaultLabel,
+            fromAnchor: d.fromAnchor,
+            toAnchor,
+          }]);
+        }
       }
       setDrawingEdge(null);
     };
@@ -238,19 +263,16 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     onSave(blob);
   }, [onSave, selectedNode, selectedEdge]);
 
-  // 智能连线路径：自动从最近边出/入
-  const edgePath = (from: FlowNode, to: FlowNode): { path: string; midX: number; midY: number } => {
-    const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
-    const tcx = to.x + to.w / 2, tcy = to.y + to.h / 2;
-    const dx = tcx - fcx, dy = tcy - fcy;
-    let fromX: number, fromY: number, toX: number, toY: number;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      if (dx >= 0) { fromX = from.x + from.w; fromY = fcy; toX = to.x; toY = tcy; }
-      else { fromX = from.x; fromY = fcy; toX = to.x + to.w; toY = tcy; }
-    } else {
-      if (dy >= 0) { fromX = fcx; fromY = from.y + from.h; toX = tcx; toY = to.y; }
-      else { fromX = fcx; fromY = from.y; toX = tcx; toY = to.y + to.h; }
-    }
+  // 连线路径：使用用户选择的起止锚点
+  const edgePath = (
+    from: FlowNode,
+    to: FlowNode,
+    fromAnchor: AnchorPos,
+    toAnchor: AnchorPos,
+  ): { path: string; midX: number; midY: number } => {
+    const fp = getAnchorPos(from, fromAnchor);
+    const tp = getAnchorPos(to, toAnchor);
+    const fromX = fp.x, fromY = fp.y, toX = tp.x, toY = tp.y;
     const midX = (fromX + toX) / 2, midY = (fromY + toY) / 2;
     const path = `M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`;
     return { path, midX, midY };
@@ -334,7 +356,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                 const from = nodes.find(n => n.id === edge.from);
                 const to = nodes.find(n => n.id === edge.to);
                 if (!from || !to) return null;
-                const { path, midX, midY } = edgePath(from, to);
+                const { path, midX, midY } = edgePath(from, to, edge.fromAnchor, edge.toAnchor);
                 const isSel = selectedEdge === edge.id;
                 return (
                   <g key={edge.id}>
