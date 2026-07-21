@@ -12,7 +12,6 @@ interface FlowNode {
   h: number;
   text: string;
   shape: NodeShape;
-  color: string;
 }
 
 interface FlowEdge {
@@ -46,7 +45,7 @@ type AnchorPos = "top" | "bottom" | "left" | "right";
 
 export default function FlowchartEditor({ onClose, onSave }: Props) {
   const [nodes, setNodes] = useState<FlowNode[]>([
-    { id: newId(), x: 380, y: 30, w: 140, h: 50, text: "开始", shape: "ellipse", color: "#70ad47" },
+    { id: newId(), x: 380, y: 30, w: 140, h: 50, text: "开始", shape: "ellipse" },
   ]);
   const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -82,7 +81,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       h: shape === "diamond" ? 80 : 50,
       text: shape === "diamond" ? "判断" : shape === "ellipse" ? "节点" : "流程",
       shape,
-      color: shape === "diamond" ? "#ffc000" : "#5b9bd5",
     }]);
     setSelectedNode(id);
     setSelectedEdge(null);
@@ -337,8 +335,8 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
             }}
             style={{
               position: "relative", width: `${CANVAS_W}px`, height: `${CANVAS_H}px`,
-              background: "#ffffff", border: "1px solid var(--border)",
-              backgroundImage: "linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
+              background: "#ffffff", border: "1px solid #d0d0d0",
+              backgroundImage: "linear-gradient(to right, #f0f0f0 1px, transparent 1px), linear-gradient(to bottom, #f0f0f0 1px, transparent 1px)",
               backgroundSize: "20px 20px", flexShrink: 0,
             }}
           >
@@ -346,10 +344,10 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
             <svg style={{ position: "absolute", inset: 0, pointerEvents: "none" }} width={CANVAS_W} height={CANVAS_H}>
               <defs>
                 <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#444" />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a" />
                 </marker>
                 <marker id="arrow-preview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff6b6b" />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#666" />
                 </marker>
               </defs>
               {edges.map(edge => {
@@ -364,12 +362,12 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                       style={{ pointerEvents: "stroke", cursor: "pointer" }}
                       onClick={(e) => { e.stopPropagation(); setSelectedEdge(edge.id); setSelectedNode(null); }}
                       onDoubleClick={(e) => { e.stopPropagation(); setSelectedEdge(edge.id); setEditingEdgeLabel(edge.id); }} />
-                    <path d={path} fill="none" stroke={isSel ? "#ff6b6b" : "#444"}
-                      strokeWidth="2" markerEnd="url(#arrow)" style={{ pointerEvents: "none" }} />
+                    <path d={path} fill="none" stroke={isSel ? "#1a1a1a" : "#1a1a1a"}
+                      strokeWidth={isSel ? "2.5" : "1.5"} markerEnd="url(#arrow)" style={{ pointerEvents: "none" }} />
                     {edge.label && (
                       <>
                         <rect x={midX - 14} y={midY - 12} width="28" height="16" rx="3"
-                          fill="#ffffff" stroke={isSel ? "#ff6b6b" : "#888"} strokeWidth="1"
+                          fill="#ffffff" stroke="#1a1a1a" strokeWidth="1"
                           style={{ pointerEvents: "none" }} />
                         <text x={midX} y={midY} textAnchor="middle" dominantBaseline="middle"
                           fontSize="11" fill="#1a1a1a" style={{ pointerEvents: "none", userSelect: "none" }}>
@@ -394,7 +392,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                           onMouseDown={(e) => e.stopPropagation()}
                           style={{
                             width: "100%", height: "100%", textAlign: "center",
-                            fontSize: "11px", border: "1px solid #ff6b6b", borderRadius: "3px",
+                            fontSize: "11px", border: "1px solid #1a1a1a", borderRadius: "3px",
                             padding: "0 2px", fontFamily: "inherit",
                           }}
                         />
@@ -406,7 +404,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
               {drawingEdge && (
                 <line x1={drawingEdge.fromX} y1={drawingEdge.fromY}
                   x2={drawingEdge.curX} y2={drawingEdge.curY}
-                  stroke="#ff6b6b" strokeWidth="2" strokeDasharray="6 4"
+                  stroke="#666" strokeWidth="1.5" strokeDasharray="6 4"
                   markerEnd="url(#arrow-preview)" style={{ pointerEvents: "none" }} />
               )}
             </svg>
@@ -425,13 +423,14 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                     position: "absolute", left: `${node.x}px`, top: `${node.y}px`,
                     width: `${node.w}px`, height: `${node.h}px`,
                     cursor: dragging?.id === node.id ? "grabbing" : "grab",
-                    boxShadow: isSel ? "0 0 0 2px #ff6b6b" : "none",
+                    boxShadow: isSel ? "0 0 0 1px #1a1a1a" : "none",
                     borderRadius: node.shape === "ellipse" ? "50%" : "2px",
                   }}
                 >
                   <svg width={node.w} height={node.h} style={{ overflow: "visible", display: "block" }}>
                     <path d={shapePath(node.shape, node.w, node.h)}
-                      fill={node.color} fillOpacity="0.2" stroke={node.color} strokeWidth="2" />
+                      fill="#ffffff" stroke="#1a1a1a"
+                      strokeWidth={isSel ? "2.5" : "1.5"} />
                   </svg>
                   {editingText === node.id ? (
                     <input
@@ -479,7 +478,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                           position: "absolute",
                           left: `${left - 4}px`, top: `${top - 4}px`,
                           width: "8px", height: "8px", borderRadius: "50%",
-                          background: "#fff", border: "2px solid " + node.color,
+                          background: "#fff", border: "2px solid #1a1a1a",
                           cursor: "crosshair",
                           transform: isHover ? "scale(1.8)" : "scale(1)",
                           transition: "transform .1s",
@@ -509,15 +508,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                   value={selectedNodeObj.text}
                   onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeObj.id ? { ...n, text: e.target.value } : n))}
                   style={{ fontSize: ".75rem", padding: ".15rem .3rem", width: "120px" }}
-                />
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
-                颜色
-                <input
-                  type="color"
-                  value={selectedNodeObj.color}
-                  onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeObj.id ? { ...n, color: e.target.value } : n))}
-                  style={{ width: "30px", height: "24px", padding: 0, border: "none", cursor: "pointer" }}
                 />
               </label>
             </>
