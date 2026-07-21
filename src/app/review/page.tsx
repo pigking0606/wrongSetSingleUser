@@ -173,7 +173,7 @@ export default function ReviewPage() {
           {current.last_review_date && <> · 上次：{current.last_review_date}</>}
         </div>
 
-        <div style={{ fontSize: "1rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}><MathText text={current.ocr_text} /></div>
+        <div style={{ fontSize: "1rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}><MathText text={current.ocr_text} splitOptions /></div>
 
         {current.image_path && (
           <div>

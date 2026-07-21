@@ -7,6 +7,7 @@ interface MathTextProps {
   text: string;
   className?: string;
   block?: boolean;
+  splitOptions?: boolean;  // 选择题选项自动每行一个
 }
 
 // ---------------------------------------------------------------------------
@@ -119,11 +120,32 @@ function tokenize(text: string): Array<{ type: "block" | "inline" | "auto" | "te
 }
 
 // ---------------------------------------------------------------------------
+// 选择题选项自动换行：在 A./B./C./D./E./F. 等选项标识符前插入 \n
+// 仅当检测到至少 3 个不同字母（A-F）的选项标识符时才处理，避免误伤"图 A. xxx"
+// ---------------------------------------------------------------------------
+
+function applySplitOptions(text: string): string {
+  if (!text) return text;
+  const re = /([A-F])[\.、）)]/g;
+  const matches = [...text.matchAll(re)];
+  if (matches.length < 3) return text;
+  const letters = new Set(matches.map(m => m[1]));
+  if (letters.size < 3) return text;
+  // 把选项标识符前的空白替换为单个换行；前面是非空白字符则插入换行
+  let result = text.replace(/\s+([A-F][\.、）)])/g, "\n$1");
+  result = result.replace(/([^\n\s])([A-F][\.、）)])/g, "$1\n$2");
+  // 标准化选项标识符后的空白为单空格
+  result = result.replace(/([A-F][\.、）)])\s+/g, "$1 ");
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // MathText — parent component
 // ---------------------------------------------------------------------------
 
-export default memo(function MathText({ text, className, block }: MathTextProps) {
-  const src = block ? (text.startsWith("$$") ? text : `$$${text}$$`) : text;
+export default memo(function MathText({ text, className, block, splitOptions }: MathTextProps) {
+  const processed = splitOptions ? applySplitOptions(text) : text;
+  const src = block ? (processed.startsWith("$$") ? processed : `$$${processed}$$`) : processed;
   const tokens = tokenize(src);
 
   return (

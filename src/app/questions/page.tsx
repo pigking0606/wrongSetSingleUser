@@ -376,7 +376,7 @@ export default function QuestionsPage() {
 
                 {q.image_path && shownImages.has(q.id) && <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px" }} />}
 
-                <div style={{ fontSize: ".9rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}><MathText text={q.ocr_text} /></div>
+                <div style={{ fontSize: ".9rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}><MathText text={q.ocr_text} splitOptions /></div>
 
                 {q.user_answer && (
                   <div style={{ padding: ".5rem .75rem", borderRadius: "6px", background: "var(--yellow-bg)", color: "var(--yellow-text)", fontSize: ".8rem" }}>
