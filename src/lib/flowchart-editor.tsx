@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-// 流程图节点类型
 type NodeShape = "rect" | "diamond" | "ellipse" | "parallelogram";
 
 interface FlowNode {
@@ -29,25 +28,23 @@ interface Props {
 }
 
 const SHAPES: { value: NodeShape; label: string }[] = [
-  { value: "rect", label: "矩形（流程）" },
-  { value: "diamond", label: "菱形（判断）" },
-  { value: "ellipse", label: "椭圆（起止）" },
-  { value: "parallelogram", label: "平行四边形（输入）" },
+  { value: "rect", label: "矩形" },
+  { value: "diamond", label: "菱形" },
+  { value: "ellipse", label: "椭圆" },
+  { value: "parallelogram", label: "平行四边形" },
 ];
 
 let nodeCounter = 0;
 const newId = () => `n${++nodeCounter}_${Date.now()}`;
 
-// 固定画布尺寸
-const CANVAS_W = 800;
-const CANVAS_H = 500;
+const CANVAS_W = 900;
+const CANVAS_H = 520;
 
-// 锚点位置（节点4个边的中点）
 type AnchorPos = "top" | "bottom" | "left" | "right";
 
 export default function FlowchartEditor({ onClose, onSave }: Props) {
   const [nodes, setNodes] = useState<FlowNode[]>([
-    { id: newId(), x: 330, y: 30, w: 140, h: 50, text: "开始", shape: "ellipse", color: "#70ad47" },
+    { id: newId(), x: 380, y: 30, w: 140, h: 50, text: "开始", shape: "ellipse", color: "#70ad47" },
   ]);
   const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -55,11 +52,9 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const [editingText, setEditingText] = useState<string | null>(null);
   const [editingEdgeLabel, setEditingEdgeLabel] = useState<string | null>(null);
-  const [hoverNode, setHoverNode] = useState<string | null>(null);
-  // 普通鼠标 hover（非拉线时）—— 用于显示锚点
-  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [hoverAnchor, setHoverAnchor] = useState<{ nodeId: string; pos: AnchorPos } | null>(null);
 
-  // 拉线状态：从某节点的某锚点开始，当前鼠标位置
+  // 拉线状态
   const [drawingEdge, setDrawingEdge] = useState<{
     fromId: string;
     fromX: number;
@@ -69,16 +64,20 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
   } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const drawingEdgeRef = useRef(drawingEdge);
+  drawingEdgeRef.current = drawingEdge;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
   const addNode = useCallback((shape: NodeShape) => {
     const id = newId();
     setNodes(prev => [...prev, {
       id,
-      x: 60 + Math.random() * 200,
-      y: 120 + Math.random() * 200,
+      x: 80 + Math.random() * 300,
+      y: 140 + Math.random() * 200,
       w: 140,
       h: shape === "diamond" ? 80 : 50,
-      text: shape === "diamond" ? "判断" : shape === "ellipse" ? "新节点" : "流程",
+      text: shape === "diamond" ? "判断" : shape === "ellipse" ? "节点" : "流程",
       shape,
       color: shape === "diamond" ? "#ffc000" : "#5b9bd5",
     }]);
@@ -97,7 +96,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     }
   }, [selectedNode, selectedEdge]);
 
-  // 获取节点某锚点的绝对坐标
   const getAnchorPos = (node: FlowNode, pos: AnchorPos): { x: number; y: number } => {
     switch (pos) {
       case "top": return { x: node.x + node.w / 2, y: node.y };
@@ -107,7 +105,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     }
   };
 
-  // 锚点 mousedown：开始拉线
+  // 锚点按下：开始拉线
   const onAnchorMouseDown = (e: React.MouseEvent, node: FlowNode, pos: AnchorPos) => {
     e.stopPropagation();
     e.preventDefault();
@@ -121,41 +119,37 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       curX: e.clientX - rect.left,
       curY: e.clientY - rect.top,
     });
-    setSelectedNode(null);
-    setSelectedEdge(null);
   };
 
-  // 全局 mousemove：更新拉线当前点
+  // 全局 mousemove + mouseup（拉线期间）
   useEffect(() => {
-    if (!drawingEdge) return;
     const onMove = (e: MouseEvent) => {
+      const d = drawingEdgeRef.current;
+      if (!d) return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = Math.max(0, Math.min(CANVAS_W, e.clientX - rect.left));
       const y = Math.max(0, Math.min(CANVAS_H, e.clientY - rect.top));
-      setDrawingEdge(prev => prev ? { ...prev, curX: x, curY: y } : null);
-      // 检测当前 hover 的节点（用 elementFromPoint）
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const nodeEl = el?.closest("[data-node-id]") as HTMLElement | null;
-      setHoverNode(nodeEl?.dataset.nodeId || null);
+      setDrawingEdge({ ...d, curX: x, curY: y });
     };
     const onUp = (e: MouseEvent) => {
-      // 松开时检测目标节点
+      const d = drawingEdgeRef.current;
+      if (!d) return;
+      // 检测松开位置下的节点
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const nodeEl = el?.closest("[data-node-id]") as HTMLElement | null;
       const targetId = nodeEl?.dataset.nodeId || null;
-      if (targetId && targetId !== drawingEdge.fromId) {
-        const fromNode = nodes.find(n => n.id === drawingEdge.fromId);
+      if (targetId && targetId !== d.fromId) {
+        const fromNode = nodesRef.current.find(n => n.id === d.fromId);
         const defaultLabel = fromNode?.shape === "diamond" ? "是" : "";
         setEdges(prev => [...prev, {
           id: `e${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          from: drawingEdge.fromId,
+          from: d.fromId,
           to: targetId,
           label: defaultLabel,
         }]);
       }
       setDrawingEdge(null);
-      setHoverNode(null);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -163,7 +157,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drawingEdge, nodes]);
+  }, []);
 
   // 节点拖动
   const onNodeMouseDown = (e: React.MouseEvent, node: FlowNode) => {
@@ -179,23 +173,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       offsetX: e.clientX - rect.left - node.x,
       offsetY: e.clientY - rect.top - node.y,
     });
-  };
-
-  const onNodeClick = (e: React.MouseEvent) => { e.stopPropagation(); };
-  const onNodeDoubleClick = (e: React.MouseEvent, node: FlowNode) => {
-    e.stopPropagation();
-    setSelectedNode(node.id);
-    setEditingText(node.id);
-  };
-  const onEdgeClick = (e: React.MouseEvent, edgeId: string) => {
-    e.stopPropagation();
-    setSelectedEdge(edgeId);
-    setSelectedNode(null);
-  };
-  const onEdgeDoubleClick = (e: React.MouseEvent, edge: FlowEdge) => {
-    e.stopPropagation();
-    setSelectedEdge(edge.id);
-    setEditingEdgeLabel(edge.id);
   };
 
   useEffect(() => {
@@ -216,12 +193,11 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     };
   }, [dragging]);
 
-  // 键盘删除
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.key === "Delete" || e.key === "Backspace") && (selectedNode || selectedEdge)) {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        const t = e.target as HTMLElement;
+        if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
         e.preventDefault();
         deleteSelected();
       }
@@ -246,7 +222,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     }
   };
 
-  // 导出 PNG
   const exportPng = useCallback(async () => {
     const html2canvas = (await import("html2canvas")).default;
     const canvas = canvasRef.current;
@@ -263,18 +238,16 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     onSave(blob);
   }, [onSave, selectedNode, selectedEdge]);
 
-  // 智能连线路径：根据两节点相对位置自动选择最近的边
+  // 智能连线路径：自动从最近边出/入
   const edgePath = (from: FlowNode, to: FlowNode): { path: string; midX: number; midY: number } => {
     const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
     const tcx = to.x + to.w / 2, tcy = to.y + to.h / 2;
     const dx = tcx - fcx, dy = tcy - fcy;
     let fromX: number, fromY: number, toX: number, toY: number;
     if (Math.abs(dx) >= Math.abs(dy)) {
-      // 水平为主
       if (dx >= 0) { fromX = from.x + from.w; fromY = fcy; toX = to.x; toY = tcy; }
       else { fromX = from.x; fromY = fcy; toX = to.x + to.w; toY = tcy; }
     } else {
-      // 垂直为主
       if (dy >= 0) { fromX = fcx; fromY = from.y + from.h; toX = tcx; toY = to.y; }
       else { fromX = fcx; fromY = from.y; toX = tcx; toY = to.y + to.h; }
     }
@@ -284,6 +257,7 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
   };
 
   const anchors: AnchorPos[] = ["top", "bottom", "left", "right"];
+  const selectedNodeObj = nodes.find(n => n.id === selectedNode);
 
   return (
     <div style={{
@@ -292,26 +266,26 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
     }}>
       <div style={{
         background: "var(--bg-card)", borderRadius: "8px", width: "100%", maxWidth: "1100px",
-        maxHeight: "95vh", display: "flex", flexDirection: "column", overflow: "hidden",
+        height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
         boxShadow: "0 10px 40px rgba(0,0,0,0.3)",
       }}>
-        {/* 顶部栏 */}
+        {/* 顶部栏 —— 固定高度 */}
         <div style={{
-          display: "flex", alignItems: "center", gap: ".5rem", padding: ".6rem .8rem",
-          borderBottom: "1px solid var(--border)",
+          flexShrink: 0, display: "flex", alignItems: "center", gap: ".5rem",
+          padding: ".6rem .8rem", borderBottom: "1px solid var(--border)",
         }}>
           <span style={{ fontWeight: 600, fontSize: ".9rem", flex: 1 }}>绘制流程图</span>
           <button className="btn" onClick={onClose} style={{ fontSize: ".75rem", padding: ".25rem .5rem" }}>取消</button>
           <button className="btn btn-primary" onClick={exportPng} style={{ fontSize: ".75rem", padding: ".25rem .6rem" }}>保存为图片并使用</button>
         </div>
 
-        {/* 工具栏 */}
+        {/* 工具栏 —— 固定高度 */}
         <div style={{
-          display: "flex", gap: ".4rem", padding: ".4rem .8rem", flexWrap: "wrap",
+          flexShrink: 0, display: "flex", gap: ".4rem", padding: ".4rem .8rem", flexWrap: "wrap",
           borderBottom: "1px solid var(--border)", background: "var(--bg-hover)",
           fontSize: ".75rem", alignItems: "center",
         }}>
-          <span style={{ color: "var(--text-muted)" }}>添加节点：</span>
+          <span style={{ color: "var(--text-muted)" }}>添加：</span>
           {SHAPES.map(s => (
             <button key={s.value} className="btn" onClick={() => addNode(s.value)}
               style={{ fontSize: ".7rem", padding: ".2rem .45rem" }}>
@@ -324,12 +298,12 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
             删除选中
           </button>
           <span style={{ color: "var(--text-muted)", fontSize: ".7rem", marginLeft: "auto" }}>
-            拖动节点移动 · 从节点边缘圆点拉线到另一节点 · 双击节点/连线编辑 · Delete 删除
+            从节点圆点拖到另一节点连线 · 双击编辑 · Delete 删除
           </span>
         </div>
 
-        {/* 画布 */}
-        <div style={{ flex: 1, overflow: "auto", padding: "1rem", background: "var(--bg)" }}>
+        {/* 画布区 —— flex:1 自适应，内部滚动 */}
+        <div style={{ flex: 1, overflow: "auto", padding: "1rem", background: "var(--bg)", minHeight: 0 }}>
           <div
             ref={canvasRef}
             onMouseDown={() => {
@@ -343,11 +317,10 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
               position: "relative", width: `${CANVAS_W}px`, height: `${CANVAS_H}px`,
               background: "#ffffff", border: "1px solid var(--border)",
               backgroundImage: "linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-              backgroundSize: "20px 20px",
-              flexShrink: 0,
+              backgroundSize: "20px 20px", flexShrink: 0,
             }}
           >
-            {/* SVG 层：连线 + 拉线预览 */}
+            {/* SVG 连线层 */}
             <svg style={{ position: "absolute", inset: 0, pointerEvents: "none" }} width={CANVAS_W} height={CANVAS_H}>
               <defs>
                 <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
@@ -365,10 +338,10 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                 const isSel = selectedEdge === edge.id;
                 return (
                   <g key={edge.id}>
-                    <path d={path} fill="none" stroke="transparent" strokeWidth="12"
+                    <path d={path} fill="none" stroke="transparent" strokeWidth="14"
                       style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                      onClick={(e) => onEdgeClick(e, edge.id)}
-                      onDoubleClick={(e) => onEdgeDoubleClick(e, edge)} />
+                      onClick={(e) => { e.stopPropagation(); setSelectedEdge(edge.id); setSelectedNode(null); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); setSelectedEdge(edge.id); setEditingEdgeLabel(edge.id); }} />
                     <path d={path} fill="none" stroke={isSel ? "#ff6b6b" : "#444"}
                       strokeWidth="2" markerEnd="url(#arrow)" style={{ pointerEvents: "none" }} />
                     {edge.label && (
@@ -408,7 +381,6 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                   </g>
                 );
               })}
-              {/* 拉线预览（虚线） */}
               {drawingEdge && (
                 <line x1={drawingEdge.fromX} y1={drawingEdge.fromY}
                   x2={drawingEdge.curX} y2={drawingEdge.curY}
@@ -420,36 +392,28 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
             {/* 节点层 */}
             {nodes.map(node => {
               const isSel = selectedNode === node.id;
-              const isHover = hoverNode === node.id && drawingEdge !== null;
               return (
                 <div
                   key={node.id}
                   data-node-id={node.id}
                   onMouseDown={(e) => onNodeMouseDown(e, node)}
-                  onMouseEnter={() => setHoverNodeId(node.id)}
-                  onMouseLeave={() => setHoverNodeId(null)}
-                  onClick={onNodeClick}
-                  onDoubleClick={(e) => onNodeDoubleClick(e, node)}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => { e.stopPropagation(); setSelectedNode(node.id); setEditingText(node.id); }}
                   style={{
-                    position: "absolute",
-                    left: `${node.x}px`,
-                    top: `${node.y}px`,
-                    width: `${node.w}px`,
-                    height: `${node.h}px`,
+                    position: "absolute", left: `${node.x}px`, top: `${node.y}px`,
+                    width: `${node.w}px`, height: `${node.h}px`,
                     cursor: dragging?.id === node.id ? "grabbing" : "grab",
-                    boxShadow: isSel ? "0 0 0 2px #ff6b6b" : (isHover ? "0 0 0 2px #70ad47" : "none"),
+                    boxShadow: isSel ? "0 0 0 2px #ff6b6b" : "none",
                     borderRadius: node.shape === "ellipse" ? "50%" : "2px",
                   }}
                 >
                   <svg width={node.w} height={node.h} style={{ overflow: "visible", display: "block" }}>
                     <path d={shapePath(node.shape, node.w, node.h)}
-                      fill={node.color} fillOpacity="0.2"
-                      stroke={node.color} strokeWidth="2" />
+                      fill={node.color} fillOpacity="0.2" stroke={node.color} strokeWidth="2" />
                   </svg>
                   {editingText === node.id ? (
                     <input
-                      autoFocus
-                      defaultValue={node.text}
+                      autoFocus defaultValue={node.text}
                       onBlur={(e) => {
                         setNodes(prev => prev.map(n => n.id === node.id ? { ...n, text: e.target.value } : n));
                         setEditingText(null);
@@ -478,30 +442,25 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
                       {node.text}
                     </div>
                   )}
-                  {/* 4个锚点（连接点）—— 从这里 mousedown 开始拉线 */}
+                  {/* 4个锚点：始终可见，hover 放大 */}
                   {anchors.map(pos => {
                     const a = getAnchorPos(node, pos);
                     const left = a.x - node.x, top = a.y - node.y;
+                    const isHover = hoverAnchor?.nodeId === node.id && hoverAnchor?.pos === pos;
                     return (
                       <div
                         key={pos}
                         onMouseDown={(e) => onAnchorMouseDown(e, node, pos)}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1.6)"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                        onMouseEnter={() => setHoverAnchor({ nodeId: node.id, pos })}
+                        onMouseLeave={() => setHoverAnchor(null)}
                         style={{
                           position: "absolute",
-                          left: `${left - 5}px`,
-                          top: `${top - 5}px`,
-                          width: "10px",
-                          height: "10px",
-                          borderRadius: "50%",
-                          background: "#fff",
-                          border: "2px solid " + node.color,
+                          left: `${left - 4}px`, top: `${top - 4}px`,
+                          width: "8px", height: "8px", borderRadius: "50%",
+                          background: "#fff", border: "2px solid " + node.color,
                           cursor: "crosshair",
+                          transform: isHover ? "scale(1.8)" : "scale(1)",
                           transition: "transform .1s",
-                          // 鼠标 hover 节点、选中节点、或正在拉线时显示锚点
-                          opacity: (isSel || isHover || hoverNodeId === node.id || drawingEdge) ? 1 : 0,
-                          pointerEvents: (isSel || isHover || hoverNodeId === node.id || drawingEdge) ? "auto" : "none",
                         }}
                       />
                     );
@@ -512,36 +471,40 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
           </div>
         </div>
 
-        {/* 底部：选中节点属性编辑 */}
-        {selectedNode && (
-          <div style={{
-            borderTop: "1px solid var(--border)", padding: ".5rem .8rem",
-            background: "var(--bg-hover)", display: "flex", gap: ".6rem",
-            alignItems: "center", fontSize: ".75rem", flexWrap: "wrap",
-          }}>
-            <span style={{ color: "var(--text-muted)" }}>选中节点：</span>
-            <label style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
-              文字：
-              <input
-                value={nodes.find(n => n.id === selectedNode)?.text || ""}
-                onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode ? { ...n, text: e.target.value } : n))}
-                style={{ fontSize: ".75rem", padding: ".15rem .3rem", width: "120px" }}
-              />
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
-              颜色：
-              <input
-                type="color"
-                value={nodes.find(n => n.id === selectedNode)?.color || "#5b9bd5"}
-                onChange={e => setNodes(prev => prev.map(n => n.id === selectedNode ? { ...n, color: e.target.value } : n))}
-                style={{ width: "30px", height: "24px", padding: 0, border: "none", cursor: "pointer" }}
-              />
-            </label>
-            <span style={{ color: "var(--text-muted)", fontSize: ".7rem" }}>
-              选中节点后，从边缘圆点拖拽到另一节点即可连线 · 菱形出线默认"是"，双击连线可改
-            </span>
-          </div>
-        )}
+        {/* 底部属性栏 —— 固定高度占位，内容空时也占位，不撑大页面 */}
+        <div style={{
+          flexShrink: 0, height: "44px", borderTop: "1px solid var(--border)",
+          padding: "0 .8rem", background: "var(--bg-hover)",
+          display: "flex", gap: ".6rem", alignItems: "center", fontSize: ".75rem",
+          overflow: "hidden",
+        }}>
+          {selectedNodeObj ? (
+            <>
+              <span style={{ color: "var(--text-muted)" }}>节点：</span>
+              <label style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
+                文字
+                <input
+                  value={selectedNodeObj.text}
+                  onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeObj.id ? { ...n, text: e.target.value } : n))}
+                  style={{ fontSize: ".75rem", padding: ".15rem .3rem", width: "120px" }}
+                />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: ".25rem" }}>
+                颜色
+                <input
+                  type="color"
+                  value={selectedNodeObj.color}
+                  onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeObj.id ? { ...n, color: e.target.value } : n))}
+                  style={{ width: "30px", height: "24px", padding: 0, border: "none", cursor: "pointer" }}
+                />
+              </label>
+            </>
+          ) : selectedEdge ? (
+            <span style={{ color: "var(--text-muted)" }}>选中了连线，双击可编辑标签（菱形默认"是"，可改"否"）</span>
+          ) : (
+            <span style={{ color: "var(--text-muted)" }}>未选中 · 点击节点/连线选中 · 从节点圆点拖到另一节点连线</span>
+          )}
+        </div>
       </div>
     </div>
   );
