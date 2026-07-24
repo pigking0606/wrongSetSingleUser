@@ -58,8 +58,10 @@ export default function PlanPage() {
 
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiReason, setAiReason] = useState("");
-  const [suggestedTasks, setSuggestedTasks] = useState<Array<{title: string; chapter_id: number|null; description: string; difficulty: number; adopted: boolean}>>([]);
+  const [suggestedTasks, setSuggestedTasks] = useState<Array<{id?: number; title: string; chapter_id: number|null; description: string; difficulty: number; adopted: boolean}>>([]);
   const [adoptingIdx, setAdoptingIdx] = useState<number | null>(null);
+  const [aiBatchId, setAiBatchId] = useState<string | null>(null);
+  const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0, todayMinutes: 0 });
   const [feedback, setFeedback] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
@@ -172,6 +174,13 @@ export default function PlanPage() {
   const commitTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const tasksRef = useRef<PlanTask[]>([]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  // 组件卸载时清理 AI 轮询定时器，避免内存泄漏
+  useEffect(() => {
+    return () => {
+      if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+    };
+  }, []);
 
   // onChange：仅更新前端显示，记录待提交值，不发请求
   const handlePctChange = (task: PlanTask, pct: number) => {
@@ -315,23 +324,70 @@ export default function PlanPage() {
 
   const aiSuggest = async () => {
     setAiSuggesting(true); setAiReason(""); setSuggestedTasks([]);
+    // 清理旧轮询
+    if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
     try {
+      // POST 立即返回 batch_id，AI 在后台执行
       const res = await fetch("/api/plan-tasks/ai-suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: curDate }) });
       const data = await res.json();
-      if (data.tasks && Array.isArray(data.tasks)) {
-        setSuggestedTasks(data.tasks.map((t: any) => ({ ...t, adopted: false })));
-        setAiReason(data.reason || "");
-        toast(`AI 已生成 ${data.tasks.length} 条今日建议`);
+      if (!res.ok || !data.batch_id) {
+        toast(data.error || "AI 建议生成失败");
+        setAiSuggesting(false);
+        return;
       }
-    } catch { toast("AI 建议生成失败"); }
-    setAiSuggesting(false);
+      setAiBatchId(data.batch_id);
+      // 轮询 GET 获取后台生成结果
+      let elapsed = 0;
+      aiPollRef.current = setInterval(async () => {
+        elapsed += 3;
+        try {
+          const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${data.batch_id}`);
+          const d = await r.json();
+          if (d.status === "ready") {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiSuggesting(false);
+            setAiBatchId(null);
+            setSuggestedTasks((d.suggestions || []).map((t: any) => ({ ...t, adopted: t.adopted || false })));
+            setAiReason(d.reason || "");
+            toast(`AI 已生成 ${d.suggestions.length} 条今日建议`);
+          } else if (d.status === "error") {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiSuggesting(false);
+            setAiBatchId(null);
+            toast("AI 生成失败：" + (d.error_reason || "未知错误"));
+          }
+          // 超时保护（120s）
+          if (elapsed > 130) {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiSuggesting(false);
+            setAiBatchId(null);
+            toast("AI 生成超时");
+          }
+        } catch { /* 单次轮询失败忽略，等下次 */ }
+      }, 3000);
+    } catch { toast("AI 建议生成失败"); setAiSuggesting(false); }
   };
 
   const adoptSuggestion = async (idx: number) => {
     setAdoptingIdx(idx);
     const t = suggestedTasks[idx];
     try {
-      await fetch("/api/plan-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task_date: curDate, title: t.title, chapter_id: t.chapter_id, description: t.description, difficulty: t.difficulty }) });
+      // 优先用 suggestion_id 走 adopt 接口（会同时入库 plan_tasks + 标记 ai_suggestions）
+      if (t.id) {
+        const res = await fetch("/api/plan-tasks/ai-suggest/adopt", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ suggestion_id: t.id }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          toast(d.error || "采纳失败");
+          setAdoptingIdx(null);
+          return;
+        }
+      } else {
+        // 兜底：无 id 时直接 INSERT plan_tasks
+        await fetch("/api/plan-tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task_date: curDate, title: t.title, chapter_id: t.chapter_id, description: t.description, difficulty: t.difficulty }) });
+      }
       setSuggestedTasks(prev => prev.map((s, i) => i === idx ? { ...s, adopted: true } : s));
       await loadTasks(curDate);
       loadStats();

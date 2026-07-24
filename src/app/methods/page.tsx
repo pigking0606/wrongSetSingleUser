@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 import MathText from "@/lib/math-text";
 import FlowchartEditor, { type FlowNode, type FlowEdge } from "@/lib/flowchart-editor";
+import FlowchartViewer from "@/lib/flowchart-viewer";
 
 interface Chapter { id: number; name: string; level: number; parent_id: number | null; }
 interface Method {
@@ -126,7 +127,9 @@ export default function MethodsPage() {
         setFormTitle(data.title || "");
         setFormContent(data.content || "");
         if (data.flowchart && Array.isArray(data.flowchart.nodes) && data.flowchart.nodes.length > 0) {
-          setAiFlowchartData({ nodes: data.flowchart.nodes, edges: data.flowchart.edges || [] });
+          const fc = { nodes: data.flowchart.nodes, edges: data.flowchart.edges || [] };
+          setAiFlowchartData(fc);    // 传给编辑器作 initialNodes/initialEdges
+          setFlowchartData(fc);      // 同步到可保存状态，避免用户不打开编辑器就丢失流程图数据
         }
         setAiGenerated(true);
         setShowForm(true); // 显示表单以展示预填数据
@@ -422,10 +425,19 @@ export default function MethodsPage() {
               ① 题型通用解法
             </div>
             {renderImageGrid(formSolutionImages, addSolutionImages, removeSolutionImage, 5, "解法流程图")}
+            {/* 已有流程图数据（AI 生成或手动绘制）时展示只读预览，点击可放大 */}
+            {flowchartData && flowchartData.nodes.length > 0 && (
+              <div style={{ marginTop: ".3rem" }}>
+                <div style={{ fontSize: ".7rem", color: "var(--text-muted)", marginBottom: ".2rem" }}>
+                  {aiFlowchartData ? "AI 生成的流程图（可直接保存，或点击下方按钮编辑）" : "当前流程图"}
+                </div>
+                <FlowchartViewer data={flowchartData} maxHeight={240} />
+              </div>
+            )}
             <div style={{ display: "flex", gap: ".4rem", marginTop: ".3rem", flexWrap: "wrap" }}>
               <button className="btn" onClick={() => setShowFlowchart(true)}
                 style={{ fontSize: ".75rem", padding: ".3rem .6rem", display: "flex", alignItems: "center", gap: ".25rem" }}>
-                <IconImage size={13} /> 绘制流程图
+                <IconImage size={13} /> {flowchartData ? "编辑流程图" : "绘制流程图"}
               </button>
             </div>
             <p style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: ".3rem 0" }}>
@@ -502,6 +514,21 @@ export default function MethodsPage() {
                     <MathText text={m.content} />
                   </div>
                 )}
+                {/* 结构化流程图（优先于 PNG 展示，可点击放大） */}
+                {m.flowchart_data && (() => {
+                  try {
+                    const parsed = JSON.parse(m.flowchart_data);
+                    if (parsed.nodes && Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: ".25rem" }}>
+                          <div style={{ fontSize: ".7rem", color: "var(--text-muted)", fontWeight: 600 }}>流程图</div>
+                          <FlowchartViewer data={{ nodes: parsed.nodes, edges: parsed.edges || [] }} />
+                        </div>
+                      );
+                    }
+                  } catch { /* ignore malformed JSON */ }
+                  return null;
+                })()}
                 {/* 题型通用解法图 */}
                 {solImgs.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: ".25rem" }}>

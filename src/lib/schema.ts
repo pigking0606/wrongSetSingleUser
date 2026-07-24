@@ -61,6 +61,31 @@ export async function initSchema() {
       extra_text_1 TEXT, extra_text_2 TEXT, extra_int_1 INT DEFAULT 0, extra_int_2 INT DEFAULT 0,
       FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // AI 生成计划建议的批次表：一次 AI 生成对应一个 batch，后台执行，状态 pending→ready/error
+    `CREATE TABLE IF NOT EXISTS ai_suggestion_batches (
+      id VARCHAR(64) PRIMARY KEY,
+      task_date DATE NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'pending',
+      reason TEXT,
+      error_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // AI 建议的具体任务条目：归属某个 batch，采纳后 adopted_task_id 指向 plan_tasks.id
+    `CREATE TABLE IF NOT EXISTS ai_suggestions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      batch_id VARCHAR(64) NOT NULL,
+      task_date DATE NOT NULL,
+      title VARCHAR(500) NOT NULL,
+      chapter_id INT,
+      description TEXT,
+      difficulty INT DEFAULT 3,
+      sort_order INT DEFAULT 0,
+      status VARCHAR(50) DEFAULT 'ready',
+      adopted_task_id INT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (batch_id) REFERENCES ai_suggestion_batches(id) ON DELETE CASCADE,
+      FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 
   for (const sql of tables) {
