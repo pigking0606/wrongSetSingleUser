@@ -221,23 +221,23 @@ export default function DailyQuestionsPage() {
                 )}
                 {reviewed[q.id] ? (
                   <span style={{
-                    fontSize: ".75rem", color: reviewed[q.id] === "correct" ? "var(--green-text)" : "var(--red-text)",
-                    display: "inline-flex", alignItems: "center", gap: ".2rem", marginLeft: "auto",
+                    display: "inline-flex", alignItems: "center",
+                    color: reviewed[q.id] === "correct" ? "var(--green-text)" : "var(--red-text)",
+                    marginLeft: "auto",
                   }}>
-                    {reviewed[q.id] === "correct" ? <IconCheck size={14} /> : <IconX size={14} />}
-                    {reviewed[q.id] === "correct" ? "已记录：对" : "已记录：错"}
+                    {reviewed[q.id] === "correct" ? <IconCheck size={16} /> : <IconX size={16} />}
                   </span>
                 ) : (
-                  <div style={{ display: "flex", gap: ".4rem", marginLeft: "auto" }}>
-                    <button className="btn btn-danger" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
-                      onClick={() => handleReview(q, false)}>
-                      <IconX size={14} /> 错
+                  <>
+                    <button className="btn" style={{ fontSize: ".8rem", display: "inline-flex", alignItems: "center", marginLeft: "auto" }}
+                      onClick={() => handleReview(q, false)} title="答错">
+                      <IconX size={16} />
                     </button>
-                    <button className="btn btn-success" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
-                      onClick={() => handleReview(q, true)}>
-                      <IconCheck size={14} /> 对
+                    <button className="btn" style={{ fontSize: ".8rem", display: "inline-flex", alignItems: "center" }}
+                      onClick={() => handleReview(q, true)} title="答对">
+                      <IconCheck size={16} />
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
 
