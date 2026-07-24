@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
-import { IconFileText } from "@/lib/icons";
+import { IconFileText, IconCheck, IconX } from "@/lib/icons";
 import type { PdfQuestion } from "@/lib/pdf-export";
 
 interface ChapterNode { id: number; name: string; level: number; }
@@ -50,6 +50,7 @@ export default function DailyQuestionsPage() {
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
   const [shownImages, setShownImages] = useState<Set<number>>(new Set());
   const [showExport, setShowExport] = useState(false);
+  const [reviewed, setReviewed] = useState<Record<number, "correct" | "wrong">>({});
 
   useEffect(() => {
     fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects).catch(() => {});
@@ -86,6 +87,17 @@ export default function DailyQuestionsPage() {
 
   const toggle = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
     const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); setter(next);
+  };
+
+  // 标记对错：调用 /api/review，按复习入库方式记录
+  const handleReview = async (q: Question, correct: boolean) => {
+    try {
+      await fetch("/api/review", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question_id: q.id, correct }),
+      });
+      setReviewed(prev => ({ ...prev, [q.id]: correct ? "correct" : "wrong" }));
+    } catch { /* ignore */ }
   };
 
   const isToday = curDate === today();
@@ -206,6 +218,26 @@ export default function DailyQuestionsPage() {
                   <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => toggle(shownImages, setShownImages, q.id)}>
                     {shownImages.has(q.id) ? "隐藏图片" : "显示图片"}
                   </button>
+                )}
+                {reviewed[q.id] ? (
+                  <span style={{
+                    fontSize: ".75rem", color: reviewed[q.id] === "correct" ? "var(--green-text)" : "var(--red-text)",
+                    display: "inline-flex", alignItems: "center", gap: ".2rem", marginLeft: "auto",
+                  }}>
+                    {reviewed[q.id] === "correct" ? <IconCheck size={14} /> : <IconX size={14} />}
+                    {reviewed[q.id] === "correct" ? "已记录：对" : "已记录：错"}
+                  </span>
+                ) : (
+                  <div style={{ display: "flex", gap: ".4rem", marginLeft: "auto" }}>
+                    <button className="btn btn-danger" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
+                      onClick={() => handleReview(q, false)}>
+                      <IconX size={14} /> 错
+                    </button>
+                    <button className="btn btn-success" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
+                      onClick={() => handleReview(q, true)}>
+                      <IconCheck size={14} /> 对
+                    </button>
+                  </div>
                 )}
               </div>
 

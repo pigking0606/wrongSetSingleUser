@@ -5,7 +5,7 @@ import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { useAuth } from "@/lib/auth-gate";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
-import { IconFileText } from "@/lib/icons";
+import { IconFileText, IconCheck, IconX } from "@/lib/icons";
 import { useModal } from "@/lib/modal";
 
 interface ChapterNode { id: number; name: string; level: number; }
@@ -45,6 +45,7 @@ export default function QuestionsPage() {
   const [showExport, setShowExport] = useState(false);
   const [exportQuestions, setExportQuestions] = useState<Question[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
+  const [reviewed, setReviewed] = useState<Record<number, "correct" | "wrong">>({});
   const modal = useModal();
 
   // Edit mode
@@ -117,6 +118,17 @@ export default function QuestionsPage() {
     await fetch(`/api/questions?id=${id}`, { method: "DELETE" });
     setQuestions(prev => prev.filter(q => q.id !== id));
     setTotal(prev => Math.max(0, prev - 1));
+  };
+
+  // 标记对错：调用 /api/review，按复习入库方式记录
+  const handleReview = async (q: Question, correct: boolean) => {
+    try {
+      await fetch("/api/review", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question_id: q.id, correct }),
+      });
+      setReviewed(prev => ({ ...prev, [q.id]: correct ? "correct" : "wrong" }));
+    } catch { /* ignore */ }
   };
 
   const handleReanalyze = async (id: number, mode: "full" | "answer") => {
@@ -407,6 +419,26 @@ export default function QuestionsPage() {
                     <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => toggle(shownImages, setShownImages, q.id)}>
                       {shownImages.has(q.id) ? "隐藏图片" : "显示图片"}
                     </button>
+                  )}
+                  {reviewed[q.id] ? (
+                    <span style={{
+                      fontSize: ".75rem", color: reviewed[q.id] === "correct" ? "var(--green-text)" : "var(--red-text)",
+                      display: "inline-flex", alignItems: "center", gap: ".2rem",
+                    }}>
+                      {reviewed[q.id] === "correct" ? <IconCheck size={14} /> : <IconX size={14} />}
+                      {reviewed[q.id] === "correct" ? "已记录：对" : "已记录：错"}
+                    </span>
+                  ) : (
+                    <div style={{ display: "flex", gap: ".4rem" }}>
+                      <button className="btn btn-danger" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
+                        onClick={() => handleReview(q, false)}>
+                        <IconX size={14} /> 错
+                      </button>
+                      <button className="btn btn-success" style={{ fontSize: ".75rem", padding: ".2rem .5rem", display: "inline-flex", alignItems: "center", gap: ".2rem" }}
+                        onClick={() => handleReview(q, true)}>
+                        <IconCheck size={14} /> 对
+                      </button>
+                    </div>
                   )}
                   {authed && <button className="btn" style={{ fontSize: ".8rem", color: "var(--text-muted)" }} onClick={() => handleReanalyze(q.id, "full")}>重解析全部</button>}
                   {authed && <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => handleReanalyze(q.id, "answer")}>重解析答案</button>}
