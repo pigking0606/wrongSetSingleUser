@@ -8,12 +8,13 @@ import {
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 import MathText from "@/lib/math-text";
-import FlowchartEditor from "@/lib/flowchart-editor";
+import FlowchartEditor, { type FlowNode, type FlowEdge } from "@/lib/flowchart-editor";
 
 interface Chapter { id: number; name: string; level: number; parent_id: number | null; }
 interface Method {
   id: number; title: string; chapter_id: number | null; content: string;
   image_path: string | null; example_images: string | null;
+  flowchart_data: string | null;  // 新增
   created_at: string;
   chapter_name: string | null; subject_name: string | null;
 }
@@ -67,6 +68,9 @@ export default function MethodsPage() {
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [showFlowchart, setShowFlowchart] = useState(false);
+  const [aiFlowchartData, setAiFlowchartData] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] } | null>(null);
+  const [aiGenerated, setAiGenerated] = useState(false);
+  const [flowchartData, setFlowchartData] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] } | null>(null);
 
   const toast = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(""), 3500); };
 
@@ -113,11 +117,30 @@ export default function MethodsPage() {
 
   useEffect(() => { loadMethods(); }, [loadMethods]);
 
+  // 挂载时检查 sessionStorage 是否有 AI 预填数据（从 questions 页面跳转过来）
+  useEffect(() => {
+    const stored = sessionStorage.getItem("aiGeneratedMethod");
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        setFormTitle(data.title || "");
+        setFormContent(data.content || "");
+        if (data.flowchart && Array.isArray(data.flowchart.nodes) && data.flowchart.nodes.length > 0) {
+          setAiFlowchartData({ nodes: data.flowchart.nodes, edges: data.flowchart.edges || [] });
+        }
+        setAiGenerated(true);
+        setShowForm(true); // 显示表单以展示预填数据
+        sessionStorage.removeItem("aiGeneratedMethod");
+      } catch { /* ignore */ }
+    }
+  }, []);
+
   const resetForm = () => {
     setEditId(null); setFormTitle(""); setFormSubject(null); setFormL2(null);
     setFormKp(null); setFormContent("");
     setFormSolutionImages([]); setFormExampleImages([]);
     setFormChaptersL2([]); setFormKps([]);
+    setAiFlowchartData(null); setFlowchartData(null); setAiGenerated(false);
   };
 
   const startEdit = (m: Method) => {
@@ -130,6 +153,9 @@ export default function MethodsPage() {
     setFormExampleImages(exImgs.map(url => ({ file: null, preview: toImageUrl(url), url })));
     // 章节预填：仅设置 kp，父级链不展开（简单处理，用户可手动改）
     setFormSubject(null); setFormL2(null); setFormKp(m.chapter_id || null);
+    // 加载现有 flowchart_data
+    setFlowchartData(m.flowchart_data ? JSON.parse(m.flowchart_data) : null);
+    setAiFlowchartData(null); setAiGenerated(false);
     setShowForm(true);
   };
 
@@ -172,15 +198,17 @@ export default function MethodsPage() {
   const addExampleImages = (files: FileList | null) =>
     addImagesToList(setFormExampleImages, files, 10, "例题图片");
 
-  // 流程图编辑器保存的 PNG blob 加入解法流程图列表
-  const handleFlowchartSave = useCallback((pngBlob: Blob) => {
+  // 流程图编辑器保存的 PNG blob 加入解法流程图列表，同时保存结构化数据
+  const handleFlowchartSave = useCallback((pngBlob: Blob, data?: { nodes: FlowNode[]; edges: FlowEdge[] }) => {
     setFormSolutionImages(prev => {
       if (prev.length >= 5) { toast("解法流程图最多 5 张，请先删除一张"); return prev; }
       const file = new File([pngBlob], `flowchart-${Date.now()}.png`, { type: "image/png" });
       const preview = URL.createObjectURL(pngBlob);
       return [...prev, { file, preview, url: undefined }];
     });
+    if (data) setFlowchartData(data);
     setShowFlowchart(false);
+    setAiFlowchartData(null); // 清空初始数据，避免重复
     toast("流程图已加入解法流程图");
   }, []);
   const removeSolutionImage = (idx: number) => removeImageFromList(setFormSolutionImages, idx);
@@ -244,6 +272,11 @@ export default function MethodsPage() {
       let exIdx = 0;
       for (const it of formExampleImages) {
         if (it.file) { fd.append(`example_image_${exIdx}`, it.file); exIdx++; }
+      }
+
+      // 结构化流程图数据（JSON 字符串）
+      if (flowchartData) {
+        fd.append("flowchart_data", JSON.stringify(flowchartData));
       }
 
       const url = editId ? `/api/methods/${editId}` : "/api/methods";
@@ -429,6 +462,8 @@ export default function MethodsPage() {
         <FlowchartEditor
           onClose={() => setShowFlowchart(false)}
           onSave={handleFlowchartSave}
+          initialNodes={aiFlowchartData?.nodes}
+          initialEdges={aiFlowchartData?.edges}
         />
       )}
 

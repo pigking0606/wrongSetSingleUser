@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-type NodeShape = "rect" | "diamond" | "ellipse" | "parallelogram";
+export type NodeShape = "rect" | "diamond" | "ellipse" | "parallelogram";
+export type AnchorPos = "top" | "bottom" | "left" | "right";
 
-interface FlowNode {
+export interface FlowNode {
   id: string;
   x: number;
   y: number;
@@ -14,7 +15,7 @@ interface FlowNode {
   shape: NodeShape;
 }
 
-interface FlowEdge {
+export interface FlowEdge {
   id: string;
   from: string;
   to: string;
@@ -23,9 +24,16 @@ interface FlowEdge {
   toAnchor: AnchorPos;    // 目标节点上离松开位置最近的锚点
 }
 
+export interface FlowchartData {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
 interface Props {
   onClose: () => void;
-  onSave: (pngBlob: Blob) => void;
+  onSave: (pngBlob: Blob, data: FlowchartData) => void;
+  initialNodes?: FlowNode[];
+  initialEdges?: FlowEdge[];
 }
 
 const SHAPES: { value: NodeShape; label: string }[] = [
@@ -41,13 +49,11 @@ const newId = () => `n${++nodeCounter}_${Date.now()}`;
 const CANVAS_W = 900;
 const CANVAS_H = 520;
 
-type AnchorPos = "top" | "bottom" | "left" | "right";
-
-export default function FlowchartEditor({ onClose, onSave }: Props) {
-  const [nodes, setNodes] = useState<FlowNode[]>([
+export default function FlowchartEditor({ onClose, onSave, initialNodes, initialEdges }: Props) {
+  const [nodes, setNodes] = useState<FlowNode[]>(initialNodes && initialNodes.length > 0 ? initialNodes : [
     { id: newId(), x: 380, y: 30, w: 140, h: 50, text: "开始", shape: "ellipse" },
   ]);
-  const [edges, setEdges] = useState<FlowEdge[]>([]);
+  const [edges, setEdges] = useState<FlowEdge[]>(initialEdges || []);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -258,8 +264,8 @@ export default function FlowchartEditor({ onClose, onSave }: Props) {
       renderCanvas.toBlob(b => resolve(b as Blob), "image/png")
     );
     setSelectedNode(prevSel); setSelectedEdge(prevEdge);
-    onSave(blob);
-  }, [onSave, selectedNode, selectedEdge]);
+    onSave(blob, { nodes, edges });
+  }, [onSave, selectedNode, selectedEdge, nodes, edges]);
 
   // 连线路径：使用用户选择的起止锚点
   const edgePath = (

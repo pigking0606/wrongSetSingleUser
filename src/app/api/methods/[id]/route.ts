@@ -20,6 +20,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const content = formData.get("content") as string | null;
   const keepImagesRaw = formData.get("keep_images") as string | null;
   const keepExampleRaw = formData.get("keep_example_images") as string | null;
+  const flowchartData = formData.get("flowchart_data") as string | null;
 
   // 解析保留的旧解法图 URL 列表
   let keepImages: string[] = [];
@@ -63,9 +64,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (title !== null) { sets.push("title=?"); vals.push(title.trim()); }
   if (chapterId !== null) { sets.push("chapter_id=?"); vals.push(chapterId ? parseInt(chapterId) : null); }
   if (content !== null) { sets.push("content=?"); vals.push(content.trim()); }
-  // 始终更新两个字段（即使没有图片也写成空数组，确保删除生效）
+  // 始终更新这两个字段（即使没有图片也写成空数组，确保删除生效）
   sets.push("image_path=?"); vals.push(JSON.stringify(finalSolution));
   sets.push("example_images=?"); vals.push(JSON.stringify(finalExample));
+  // 结构化流程图数据（可选；传 null 清空，传 JSON 字符串更新）
+  if (flowchartData !== null) { sets.push("flowchart_data=?"); vals.push(flowchartData || null); }
 
   vals.push(id);
   await runAndSave(`UPDATE solution_methods SET ${sets.join(",")} WHERE id=?`, vals);

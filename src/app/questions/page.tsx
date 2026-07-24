@@ -47,6 +47,38 @@ export default function QuestionsPage() {
   const [exportLoading, setExportLoading] = useState(false);
   const [reviewed, setReviewed] = useState<Record<number, "correct" | "wrong">>({});
   const modal = useModal();
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const handleAiGenerate = async () => {
+    if (selectedIds.size < 2) return;
+    setAiGenerating(true);
+    try {
+      const resp = await fetch("/api/methods/ai-generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question_ids: Array.from(selectedIds) }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        modal.alert("生成失败", data.error || "AI 生成失败");
+        return;
+      }
+      // 把 AI 结果存入 sessionStorage，跳转到 /methods 页面预填
+      sessionStorage.setItem("aiGeneratedMethod", JSON.stringify(data));
+      window.location.href = "/methods";
+    } catch (err) {
+      modal.alert("生成失败", err instanceof Error ? err.message : "网络错误");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
 
   // Edit mode
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -64,6 +96,9 @@ export default function QuestionsPage() {
     fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)});
     fetchQuestions(null, null, null);
   }, []);
+
+  // 翻页/切换筛选时清空选择
+  useEffect(() => { setSelectedIds(new Set()); }, [page, filter.subjectId, filter.chapterId, filter.kpId, bankId, dateFrom, dateTo]);
 
   const handleSubjectChange = useCallback(async (subjectId: string) => {
     if (!subjectId) { setFilter(f => ({ ...f, subjectId: null, subjectName: "", chapterId: null, chapterName: "", kpId: null, kpName: "" })); setChapters([]); setKps([]); fetchQuestions(null, null, null); return; }
@@ -309,6 +344,20 @@ export default function QuestionsPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
           <p style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>共 {questions.length} 道题目</p>
+          {authed && selectedIds.size >= 2 && (
+            <div className="card" style={{ display: "flex", gap: ".75rem", alignItems: "center", flexWrap: "wrap", padding: ".75rem" }}>
+              <span style={{ fontSize: ".85rem", fontWeight: 600 }}>已选 {selectedIds.size} 题</span>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: ".8rem" }}
+                disabled={aiGenerating}
+                onClick={handleAiGenerate}
+              >
+                {aiGenerating ? "AI 生成中..." : "AI 生成题型解法"}
+              </button>
+              <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => setSelectedIds(new Set())}>取消选择</button>
+            </div>
+          )}
           {editLoading && (
             <div className="card" style={{ textAlign: "center", padding: "1rem", background: "var(--bg-hover)" }}>
               <span style={{ fontSize: ".85rem", color: "var(--text-muted)" }}>加载编辑数据...</span>
@@ -370,6 +419,14 @@ export default function QuestionsPage() {
               <div key={q.id} className="card" style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
                 {/* Breadcrumb */}
                 <div style={{ display: "flex", alignItems: "center", gap: ".25rem", fontSize: ".75rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+                  {authed && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(q.id)}
+                      onChange={() => toggleSelect(q.id)}
+                      style={{ marginRight: ".25rem" }}
+                    />
+                  )}
                   {q.subject_name && <span className="tag">{q.subject_name}</span>}
                   {q.chapter_name && <><span>›</span><span>{q.chapter_name}</span></>}
                   {q.kp_name && <><span>›</span><span style={{ color: "var(--text-muted)" }}>{q.kp_name}</span></>}

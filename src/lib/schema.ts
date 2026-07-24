@@ -71,6 +71,7 @@ export async function initSchema() {
   // 例题与解法图分离：image_path 存解法流程图（供 AI 解析），example_images 存例题图片
   const migrations: Array<{ sql: string; desc: string }> = [
     { sql: "ALTER TABLE solution_methods ADD COLUMN example_images TEXT", desc: "solution_methods.example_images" },
+    { sql: "ALTER TABLE solution_methods ADD COLUMN flowchart_data LONGTEXT", desc: "solution_methods.flowchart_data (结构化流程图 JSON)" },
   ];
   for (const m of migrations) {
     try { await db.execute(m.sql); } catch (e) {

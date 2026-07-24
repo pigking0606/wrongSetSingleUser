@@ -80,13 +80,15 @@ export async function POST(req: NextRequest) {
 
   // 例题图片：example_image_N
   const exampleUrls: string[] = await collectImages(formData, /^example_image_\d+$/);
+  // 结构化流程图数据（JSON 字符串，可选）
+  const flowchartData = (formData.get("flowchart_data") as string | null);
 
   const imagePathJson = JSON.stringify(solutionUrls);
   const exampleImagesJson = JSON.stringify(exampleUrls);
 
   await runAndSave(
-    "INSERT INTO solution_methods (title, chapter_id, content, image_path, example_images) VALUES (?,?,?,?,?)",
-    [title, chapterId ? parseInt(chapterId) : null, content, imagePathJson, exampleImagesJson]
+    "INSERT INTO solution_methods (title, chapter_id, content, image_path, example_images, flowchart_data) VALUES (?,?,?,?,?,?)",
+    [title, chapterId ? parseInt(chapterId) : null, content, imagePathJson, exampleImagesJson, flowchartData || null]
   );
 
   const row = await queryOne<{ id: number }>("SELECT LAST_INSERT_ID() as id");

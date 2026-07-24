@@ -172,6 +172,89 @@ async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<vo
 }
 
 // ---------------------------------------------------------------------------
+// 答案一致性校验：用文本模型对比 correctAnswer 与 explanation/solutions
+// 若不一致，以 explanation/solutions 为准返回修正后的 correctAnswer
+// ---------------------------------------------------------------------------
+
+const RECONCILE_PROMPT = `你是考研题目校对专家。你的任务是判断"答案"字段与"解析/解法"的最终结果是否一致。
+
+规则：
+- 以"解析"和"解法"中的推导结果为准
+- 如果"答案"与推导结果不一致，返回修正后的答案（取推导结果）
+- 如果一致，原样返回答案
+- 答案可能是选项字母（A/B/C/D）、数值、表达式等，需归一化比较（忽略空格、大小写、$ 符号差异）
+
+输出纯 JSON：
+{"consistent": true/false, "correctedAnswer": "修正后的答案", "reason": "不一致原因（若一致则为空）"}
+
+输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。`;
+
+export async function reconcileAnswerWithAI(result: AiAnalysisResult, apiKey: string): Promise<void> {
+  if (!result.correctAnswer && !result.explanation && (!result.solutions || result.solutions.length === 0)) return;
+
+  const model = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+  const solutionsText = (result.solutions || [])
+    .map((s, i) => `解法${i + 1}「${s.name}」：步骤：${(s.steps || []).join(" | ")}；答案：${s.answer || "(无)"}`)
+    .join("\n");
+
+  const userText = `【答案字段】
+${result.correctAnswer || "(空)"}
+
+【解析字段】
+${result.explanation || "(空)"}
+
+【解法字段】
+${solutionsText || "(无解法)"}
+
+请判断答案字段与解析/解法的最终结果是否一致。`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const body: any = {
+      model,
+      max_tokens: 2048,
+      temperature: 0,
+      messages: [
+        { role: "system", content: RECONCILE_PROMPT },
+        { role: "user", content: userText },
+      ],
+    };
+    if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
+
+    const resp = await fetch(await getApiUrl(model, "text_url"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      console.warn("[reconcileAnswerWithAI] API error", resp.status);
+      return;
+    }
+    const data = await resp.json();
+    const rawText: string = data.choices?.[0]?.message?.content || "";
+    const jsonStr = stripThinkingBeforeJson(rawText);
+    const parsed = parseAiJson(jsonStr) as AiAnalysisResult & { correctedAnswer?: string; reason?: string; consistent?: boolean };
+
+    if (parsed && typeof parsed.correctedAnswer === "string" && parsed.correctedAnswer.trim()) {
+      const original = (result.correctAnswer || "").trim();
+      const corrected = parsed.correctedAnswer.trim();
+      // 归一化比较：去 $、空格、统一大小写
+      const norm = (s: string) => s.replace(/\$/g, "").replace(/\s+/g, "").toLowerCase();
+      if (norm(original) !== norm(corrected)) {
+        console.log(`[reconcileAnswerWithAI] 答案修正："${original}" → "${corrected}"，原因：${parsed.reason || "(未说明)"}`);
+        result.correctAnswer = corrected;
+      }
+    }
+  } catch (err) {
+    console.warn("[reconcileAnswerWithAI] failed, keeping original answer:", err instanceof Error ? err.message : err);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Layer 3: Post-process — fix common AI LaTeX mistakes that survived this far
 // ---------------------------------------------------------------------------
 
@@ -965,6 +1048,13 @@ export async function analyzeImageTwoStep(
     await dedupResult(result, apiKey);
   } catch (err) {
     console.warn("[analyzeImageTwoStep] dedup failed, keeping raw:", err);
+  }
+
+  // 答案一致性校验：若 correctAnswer 与 explanation/solutions 不一致，以解析为准修正
+  try {
+    await reconcileAnswerWithAI(result, apiKey);
+  } catch (err) {
+    console.warn("[analyzeImageTwoStep] answer reconciliation failed:", err);
   }
 
   // Strip question numbers from OCR text (e.g. "32. ", "【2021统考真题】")

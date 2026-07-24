@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
-import { autoWrapMathDelimiters, sanitizeLatex, fixLatexWithAI } from "@/lib/ai";
+import { autoWrapMathDelimiters, sanitizeLatex, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
 
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
@@ -186,6 +186,13 @@ async function processReanalyze(
         }
       }
     } catch { /* Layer 1 is best-effort, proceed with raw result */ }
+
+    // 答案一致性校验：若 correctAnswer 与 explanation/solutions 不一致，以解析为准修正
+    try {
+      await reconcileAnswerWithAI(result, apiKey);
+    } catch (err) {
+      console.warn("Reanalyze: answer reconciliation failed:", err);
+    }
 
     // Save to DB first (before risky Layer 2), so we don't lose the AI output
     if (answerOnly) {
