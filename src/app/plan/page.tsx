@@ -62,6 +62,8 @@ export default function PlanPage() {
   const [adoptingIdx, setAdoptingIdx] = useState<number | null>(null);
   const [aiBatchId, setAiBatchId] = useState<string | null>(null);
   const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 防止 lazy cron 重复触发（每个日期只自动触发一次）
+  const autoTriggeredRef = useRef<Set<string>>(new Set());
   const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0, todayMinutes: 0 });
   const [feedback, setFeedback] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
@@ -153,6 +155,92 @@ export default function PlanPage() {
   useEffect(() => { loadTasks(curDate); loadStats(); }, [curDate]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
+  // 通用轮询：根据 batch_id 轮询 AI 建议生成结果，ready/error 时收尾
+  const pollAiSuggestions = useCallback((batchId: string) => {
+    if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+    let elapsed = 0;
+    aiPollRef.current = setInterval(async () => {
+      elapsed += 3;
+      try {
+        const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
+        const d = await r.json();
+        if (d.status === "ready") {
+          if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+          setAiSuggesting(false);
+          setAiBatchId(null);
+          setSuggestedTasks((d.suggestions || []).map((t: any) => ({ ...t, adopted: t.adopted || false })));
+          setAiReason(d.reason || "");
+        } else if (d.status === "error") {
+          if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+          setAiSuggesting(false);
+          setAiBatchId(null);
+        }
+        // 超时保护（130s）
+        if (elapsed > 130) {
+          if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+          setAiSuggesting(false);
+          setAiBatchId(null);
+        }
+      } catch { /* 单次轮询失败忽略 */ }
+    }, 3000);
+  }, []);
+
+  // 刷新页面后从 DB 加载今天最新的 AI 建议
+  // 同时实现 lazy cron：若今天无 batch（或仅有 error batch）且已过凌晨 3 点，自动触发新一次生成
+  const loadLatestSuggestions = useCallback(async (date: string) => {
+    try {
+      const batchRes = await fetch(`/api/plan-tasks/ai-suggest/latest?date=${date}`);
+      if (!batchRes.ok) return;
+      const batchData = await batchRes.json();
+      const batchId: string | null = batchData.batch_id;
+      const batchStatus: string | null = batchData.status;
+
+      if (batchId && batchStatus === "ready") {
+        // 已有 ready batch → 直接加载建议
+        const sugRes = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
+        if (!sugRes.ok) return;
+        const sugData = await sugRes.json();
+        if (Array.isArray(sugData.suggestions) && sugData.suggestions.length > 0) {
+          setSuggestedTasks(sugData.suggestions.map((t: any) => ({ ...t, adopted: t.adopted || false })));
+          setAiReason(sugData.reason || "");
+        }
+      } else if (batchId && batchStatus === "pending") {
+        // 后台仍在生成 → 恢复轮询（不重复触发）
+        setAiSuggesting(true);
+        setAiBatchId(batchId);
+        pollAiSuggestions(batchId);
+      } else {
+        // 无 batch 或最近一次为 error → 判断是否需要 lazy cron 自动触发
+        // 仅对今天自动触发，且要求当前时间 ≥ 03:00（凌晨 3 点后）
+        if (date === today() && !autoTriggeredRef.current.has(date)) {
+          const now = new Date();
+          const hour = now.getHours();
+          if (hour >= 3) {
+            autoTriggeredRef.current.add(date);
+            // 自动触发后台生成（不弹 toast，静默执行）
+            setAiSuggesting(true);
+            try {
+              const res = await fetch("/api/plan-tasks/ai-suggest", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ date }),
+              });
+              const data = await res.json();
+              if (res.ok && data.batch_id) {
+                setAiBatchId(data.batch_id);
+                pollAiSuggestions(data.batch_id);
+              } else {
+                setAiSuggesting(false);
+              }
+            } catch {
+              setAiSuggesting(false);
+            }
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }, [pollAiSuggestions]);
+
+  useEffect(() => { loadLatestSuggestions(curDate); }, [curDate, loadLatestSuggestions]);
   const loadHistory = async () => {
     const from = addDays(today(), -30);
     const data = await (await fetch(`/api/plan-tasks?from=${from}&to=${today()}`)).json();
@@ -324,10 +412,8 @@ export default function PlanPage() {
 
   const aiSuggest = async () => {
     setAiSuggesting(true); setAiReason(""); setSuggestedTasks([]);
-    // 清理旧轮询
     if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
     try {
-      // POST 立即返回 batch_id，AI 在后台执行
       const res = await fetch("/api/plan-tasks/ai-suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: curDate }) });
       const data = await res.json();
       if (!res.ok || !data.batch_id) {
@@ -336,12 +422,15 @@ export default function PlanPage() {
         return;
       }
       setAiBatchId(data.batch_id);
-      // 轮询 GET 获取后台生成结果
+      // 标记今日已触发（手动触发也写入，避免后续 lazy cron 重复触发）
+      autoTriggeredRef.current.add(curDate);
+      // 轮询获取后台生成结果
       let elapsed = 0;
+      const batchId = data.batch_id;
       aiPollRef.current = setInterval(async () => {
         elapsed += 3;
         try {
-          const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${data.batch_id}`);
+          const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
           const d = await r.json();
           if (d.status === "ready") {
             if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
@@ -356,7 +445,6 @@ export default function PlanPage() {
             setAiBatchId(null);
             toast("AI 生成失败：" + (d.error_reason || "未知错误"));
           }
-          // 超时保护（120s）
           if (elapsed > 130) {
             if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
             setAiSuggesting(false);
@@ -701,10 +789,15 @@ export default function PlanPage() {
               <IconSparkle size={18} /> AI 建议今日任务
             </span>
             <button className="btn btn-primary" onClick={aiSuggest} disabled={aiSuggesting} style={{ fontSize: ".8rem", padding: ".4rem .8rem" }}>
-              {aiSuggesting ? "生成中..." : "生成建议"}
+              {aiSuggesting ? "后台生成中..." : "生成建议"}
             </button>
           </div>
           <p style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>AI 将根据近期小结和昨日未完成任务，为今天推荐具体到章节的学习任务</p>
+          {aiSuggesting && (
+            <p style={{ fontSize: ".75rem", color: "var(--green-text)", background: "var(--green-bg)", padding: ".4rem .6rem", borderRadius: "6px" }}>
+              AI 正在后台生成建议，你可以离开此页面，刷新后仍会显示结果。
+            </p>
+          )}
           {aiReason && <p style={{ fontSize: ".8rem", color: "var(--green-text)", background: "var(--green-bg)", padding: ".5rem", borderRadius: "6px" }}>{aiReason}</p>}
           {/* Adoptable suggestion cards */}
           {suggestedTasks.length > 0 && (

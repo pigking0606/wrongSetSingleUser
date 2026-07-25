@@ -130,8 +130,47 @@ async function generateSuggestionsInBackground(batchId: string, targetDate: stri
     "SELECT title, COUNT(*) as cnt FROM plan_tasks GROUP BY title ORDER BY cnt DESC LIMIT 30"
   );
 
+  // 查询每个 chapter_id 下的题目数量（用于向 AI 提供章节内容规模）
+  const questionCounts = await queryAll<{ chapter_id: number; cnt: number }>(
+    "SELECT chapter_id, COUNT(*) as cnt FROM questions WHERE chapter_id IS NOT NULL GROUP BY chapter_id"
+  );
+  const qCountMap = new Map<number, number>();
+  for (const q of questionCounts) qCountMap.set(q.chapter_id, q.cnt);
+
   const chapMap = new Map<number, string>();
   for (const c of chapters) chapMap.set(c.id, c.name);
+
+  // 构建章节内容摘要：level 1（学科）→ level 2（章）→ level 3（知识点）+ 题目数量
+  // 让 AI 知道每个章节有哪些知识点、各有多少题目，从而给出更贴合实际的计划
+  const subjectChapters = new Map<number, typeof chapters>(); // level1 id → level2 list
+  const chapterKps = new Map<number, typeof chapters>();      // level2 id → level3 list
+  for (const c of chapters) {
+    if (c.level === 2 && c.parent_id != null) {
+      const arr = subjectChapters.get(c.parent_id) || [];
+      arr.push(c); subjectChapters.set(c.parent_id, arr);
+    } else if (c.level === 3 && c.parent_id != null) {
+      const arr = chapterKps.get(c.parent_id) || [];
+      arr.push(c); chapterKps.set(c.parent_id, arr);
+    }
+  }
+  const chapterContentLines: string[] = [];
+  for (const subj of chapters.filter(c => c.level === 1)) {
+    const l2list = subjectChapters.get(subj.id) || [];
+    if (l2list.length === 0) continue;
+    const subjTotal = l2list.reduce((s, ch) => s + (qCountMap.get(ch.id) || 0), 0);
+    chapterContentLines.push(`【${subj.name}】（共 ${subjTotal} 题）`);
+    for (const l2 of l2list) {
+      const l2Cnt = qCountMap.get(l2.id) || 0;
+      const kps = chapterKps.get(l2.id) || [];
+      if (kps.length === 0) {
+        chapterContentLines.push(`  - ${l2.name}（${l2Cnt} 题）`);
+      } else {
+        const kpText = kps.map(kp => `${kp.name}(${qCountMap.get(kp.id) || 0}题)`).join("、");
+        chapterContentLines.push(`  - ${l2.name}（${l2Cnt} 题）：${kpText}`);
+      }
+    }
+  }
+  const chapterContentText = chapterContentLines.join("\n") || "暂无章节题目数据";
 
   const summaryText = recentSummaries.length > 0
     ? recentSummaries.map(s => `[${s.summary_date}] ${s.content}`).join("\n")
@@ -172,7 +211,7 @@ async function generateSuggestionsInBackground(batchId: string, targetDate: stri
   const ctrl = new AbortController();
   setTimeout(() => ctrl.abort(), 120000);
 
-  const prompt = `你是考研备考规划助手。请根据学生的学习情况，为今天（${targetDate}）建议3-5个具体任务。
+  const prompt = `你是考研备考规划助手。请根据学生的学习情况和章节题目分布，为今天（${targetDate}）建议3-5个具体任务。
 
 【今日已有但尚未完成的任务 — 需要继续推进】
 ${todayIncompleteText || "今天所有任务都已完成"}
@@ -186,16 +225,20 @@ ${taskText}
 【用户常用任务模板】
 ${patternText || "暂无"}
 
-【可用章节列表（id:名称）】
+【章节内容分布（学科 → 章 → 知识点 + 题目数量）】
+${chapterContentText}
+
+【可用章节 id 对照（用于 chapter_id 字段）】
 ${chapterList}
 
 要求：
 - 返回纯JSON（不要markdown包裹）
 - 今天已有但未完成的任务优先安排，可以直接复用原标题或细化
 - 如果今天没有未完成任务，再根据学习进度推荐新任务
-- 不要推荐过于宽泛的任务（如"复习数学"），必须具体到章节
+- 不要推荐过于宽泛的任务（如"复习数学"），必须具体到章节或知识点
+- 优先推荐题目数量较多（≥3题）的章节进行做题巩固，避免推荐空章节（0题）的"做题"任务
 - 任务粒度与用户历史模板保持一致
-- 每个任务指定chapter_id（从章节列表中选最匹配的，找不到填null）
+- 每个任务指定chapter_id（优先选知识点级 level 3，其次章节级 level 2；从章节列表中选最匹配的，找不到填null）
 - 为每个任务建议预估difficulty（1简单-5困难）
 
 学习闭环原则（必须遵循）：
@@ -204,6 +247,7 @@ ${chapterList}
 - 每3-5天应安排一次"复习/复盘"类任务（如：回顾本周错题、整理某章节笔记、重做错题本中高频错题）
 - 如果今天已有学习类任务，建议补充一个做题或复习任务与之配套
 - 任务标题应体现任务类型，如"做题：660题第5章选择题"、"复习：高数第一章错题复盘"、"学习：线代第三章行列式"
+- 推荐做题任务时，标题中可点出对应章节的知识点（参考章节内容分布）
 
 JSON格式：
 {

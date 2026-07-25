@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { queryOne, queryAll } from "@/lib/db";
+import { queryOne, queryAll, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex } from "@/lib/ai";
 
 // POST /api/methods/ai-generate
-// Input: { question_ids: number[] }
-// Output: { title, content, flowchart: { nodes: FlowNode[], edges: FlowEdge[] } }
-// AI 根据用户选中的多道同类题，生成题型解法 + 结构化流程图数据
+// 改为后台 fire-and-forget 模式：
+// 1. 生成 batch_id，INSERT ai_method_batches (status='pending')，立即返回 { batch_id }
+// 2. 后台 Promise 跑 AI，完成后自动 INSERT solution_methods + UPDATE batch status='ready', method_id=新id
+// 3. 失败时 UPDATE batch status='error' + error_reason
 export async function POST(req: NextRequest) {
   await initSchema();
   try {
@@ -18,28 +19,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "最多支持 10 道题目" }, { status: 400 });
     }
 
-    // 拉取题目数据
-    const ids = question_ids.slice(0, 10);
-    const placeholders = ids.map(() => "?").join(",");
-    const questions = await queryAll<{
-      id: number; ocr_text: string; correct_answer: string;
-      explanation: string | null; ai_solutions: string | null;
-    }>(
-      `SELECT id, ocr_text, correct_answer, explanation, ai_solutions FROM questions WHERE id IN (${placeholders})`,
-      ids
-    );
-
-    if (questions.length === 0) {
-      return NextResponse.json({ error: "未找到指定题目" }, { status: 404 });
-    }
-
     const apiKey = await loadSetting("text_key", "DEEPSEEK_API_KEY") || await loadSetting("vision_key", "DASHSCOPE_API_KEY");
     if (!apiKey) {
       return NextResponse.json({ error: "未配置 AI API Key，请在设置页面填写" }, { status: 500 });
     }
 
-    const result = await generateMethod(questions, apiKey);
-    return NextResponse.json(result);
+    // 生成 batch_id 并插入占位记录
+    const batchId = `mbat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await runAndSave(
+      "INSERT INTO ai_method_batches (id, status) VALUES (?,'pending')",
+      [batchId]
+    );
+
+    // 后台 fire-and-forget 执行 AI 生成（不 await）
+    generateMethodInBackground(batchId, question_ids.slice(0, 10), apiKey).catch(err => {
+      console.error("[methods/ai-generate] background failed:", err);
+      runAndSave(
+        "UPDATE ai_method_batches SET status='error', error_reason=? WHERE id=?",
+        [String(err).slice(0, 300), batchId]
+      ).catch(() => {});
+    });
+
+    return NextResponse.json({ ok: true, batch_id: batchId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "AI 生成失败";
     console.error("[methods/ai-generate] error:", err);
@@ -47,8 +48,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// GET /api/methods/ai-generate?batch_id=xxx
+// 前端轮询接口：返回 batch 状态 + 生成的 method_id
+export async function GET(req: NextRequest) {
+  await initSchema();
+  const { searchParams } = new URL(req.url);
+  const batchId = searchParams.get("batch_id");
+  if (!batchId) {
+    return NextResponse.json({ error: "缺少 batch_id 参数" }, { status: 400 });
+  }
+
+  const batch = await queryOne<{ id: string; status: string; method_id: number | null; error_reason: string | null }>(
+    "SELECT id, status, method_id, error_reason FROM ai_method_batches WHERE id=?",
+    [batchId]
+  );
+  if (!batch) {
+    return NextResponse.json({ error: "batch 不存在" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    status: batch.status,
+    method_id: batch.method_id,
+    error_reason: batch.error_reason,
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Setting loader (mirrors ai.ts but kept local)
+// Setting loader
 // ---------------------------------------------------------------------------
 async function loadSetting(key: string, envFallback = "") {
   try {
@@ -112,6 +138,7 @@ const GENERATE_METHOD_PROMPT = `你是题型解法整理专家。用户会提供
 - 判断节点（diamond）的出边必须有"是"/"否" label
 - 节点间用 fromAnchor→toAnchor 直接连接，不要自动计算最近边
 - 流程图要能清晰反映 content 中的解题步骤
+- **节点文字支持 LaTeX**：数学公式用 $...$ 包裹（如 $x^2$、$\\frac{a}{b}$），反斜杠在 JSON 中写双反斜杠
 
 ## content 规范
 - 按"【题型识别】/【解题步骤】/【关键易错点】"三段式组织
@@ -119,10 +146,21 @@ const GENERATE_METHOD_PROMPT = `你是题型解法整理专家。用户会提供
 - 数学公式用 $...$ 包裹，反斜杠在 JSON 中写成双反斜杠 \\\\
 - 简洁直接，禁止"可能"、"或者"、"等等"这种不确定表述`;
 
-async function generateMethod(
-  questions: { id: number; ocr_text: string; correct_answer: string; explanation: string | null; ai_solutions: string | null }[],
-  apiKey: string
-): Promise<{ title: string; content: string; flowchart: { nodes: any[]; edges: any[] } }> {
+async function generateMethodInBackground(batchId: string, questionIds: number[], apiKey: string) {
+  // 拉取题目数据
+  const placeholders = questionIds.map(() => "?").join(",");
+  const questions = await queryAll<{
+    id: number; ocr_text: string; correct_answer: string;
+    explanation: string | null; ai_solutions: string | null;
+  }>(
+    `SELECT id, ocr_text, correct_answer, explanation, ai_solutions FROM questions WHERE id IN (${placeholders})`,
+    questionIds
+  );
+
+  if (questions.length === 0) {
+    throw new Error("未找到指定题目");
+  }
+
   const model = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180000);
@@ -194,7 +232,6 @@ ${solText}`;
     if (!Array.isArray(flowchart.nodes)) flowchart.nodes = [];
     if (!Array.isArray(flowchart.edges)) flowchart.edges = [];
 
-    // 为每个 node 补全默认字段
     flowchart.nodes = flowchart.nodes.map((n: any, i: number) => ({
       id: n.id || `n${i + 1}`,
       x: typeof n.x === "number" ? n.x : 80 + (i % 3) * 200,
@@ -205,7 +242,6 @@ ${solText}`;
       shape: ["rect", "diamond", "ellipse", "parallelogram"].includes(n.shape) ? n.shape : "rect",
     }));
 
-    // 为每个 edge 补全默认字段
     flowchart.edges = flowchart.edges.map((e: any, i: number) => ({
       id: e.id || `e${i + 1}`,
       from: e.from || "",
@@ -215,7 +251,22 @@ ${solText}`;
       toAnchor: ["top", "bottom", "left", "right"].includes(e.toAnchor) ? e.toAnchor : "top",
     })).filter((e: any) => e.from && e.to);
 
-    return { title, content, flowchart };
+    // 自动保存到 solution_methods 表
+    const flowchartJson = JSON.stringify({ nodes: flowchart.nodes, edges: flowchart.edges });
+    await runAndSave(
+      "INSERT INTO solution_methods (title, chapter_id, content, image_path, example_images, flowchart_data) VALUES (?,?,?,?,?,?)",
+      [title.slice(0, 500), null, content, JSON.stringify([]), JSON.stringify([]), flowchartJson]
+    );
+
+    const newMethod = await queryOne<{ id: number }>("SELECT LAST_INSERT_ID() as id");
+    const methodId = newMethod?.id || 0;
+
+    // UPDATE batch status='ready', method_id=新id
+    await runAndSave(
+      "UPDATE ai_method_batches SET status='ready', method_id=? WHERE id=?",
+      [methodId, batchId]
+    );
+    console.log(`[methods/ai-generate][${batchId}] completed, method_id=${methodId}`);
   } catch (err) {
     if ((err as Error).name === "AbortError") throw new Error("AI 生成超时（3 分钟）");
     throw err;

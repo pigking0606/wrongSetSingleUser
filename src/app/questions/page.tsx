@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
 import { useAuth } from "@/lib/auth-gate";
@@ -49,6 +49,8 @@ export default function QuestionsPage() {
   const modal = useModal();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiBatchId, setAiBatchId] = useState<string | null>(null);
+  const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -59,26 +61,61 @@ export default function QuestionsPage() {
   const handleAiGenerate = async () => {
     if (selectedIds.size < 2) return;
     setAiGenerating(true);
+    if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
     try {
+      // POST 立即返回 batch_id，AI 在后台执行
       const resp = await fetch("/api/methods/ai-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question_ids: Array.from(selectedIds) }),
       });
       const data = await resp.json();
-      if (!resp.ok) {
+      if (!resp.ok || !data.batch_id) {
         modal.alert("生成失败", data.error || "AI 生成失败");
+        setAiGenerating(false);
         return;
       }
-      // 把 AI 结果存入 sessionStorage，跳转到 /methods 页面预填
-      sessionStorage.setItem("aiGeneratedMethod", JSON.stringify(data));
-      window.location.href = "/methods";
+      setAiBatchId(data.batch_id);
+      // 轮询 GET 获取后台生成结果
+      let elapsed = 0;
+      aiPollRef.current = setInterval(async () => {
+        elapsed += 3;
+        try {
+          const r = await fetch(`/api/methods/ai-generate?batch_id=${data.batch_id}`);
+          const d = await r.json();
+          if (d.status === "ready") {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiGenerating(false);
+            setAiBatchId(null);
+            setSelectedIds(new Set());
+            modal.alert("生成完成", "AI 已生成题型解法并自动保存，即将跳转到题型解法页面查看。");
+            setTimeout(() => { window.location.href = "/methods"; }, 1500);
+          } else if (d.status === "error") {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiGenerating(false);
+            setAiBatchId(null);
+            modal.alert("生成失败", d.error_reason || "未知错误");
+          }
+          if (elapsed > 200) {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            setAiGenerating(false);
+            setAiBatchId(null);
+            modal.alert("超时", "AI 生成超时，可稍后在题型解法页面查看结果。");
+          }
+        } catch { /* 单次轮询失败忽略 */ }
+      }, 3000);
     } catch (err) {
       modal.alert("生成失败", err instanceof Error ? err.message : "网络错误");
-    } finally {
       setAiGenerating(false);
     }
   };
+
+  // 组件卸载时清理轮询
+  useEffect(() => {
+    return () => {
+      if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+    };
+  }, []);
 
   // Edit mode
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -353,9 +390,14 @@ export default function QuestionsPage() {
                 disabled={aiGenerating}
                 onClick={handleAiGenerate}
               >
-                {aiGenerating ? "AI 生成中..." : "AI 生成题型解法"}
+                {aiGenerating ? "AI 后台生成中..." : "AI 生成题型解法"}
               </button>
-              <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => setSelectedIds(new Set())}>取消选择</button>
+              <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => setSelectedIds(new Set())} disabled={aiGenerating}>取消选择</button>
+              {aiGenerating && (
+                <span style={{ fontSize: ".75rem", color: "var(--green-text)" }}>
+                  AI 正在后台生成，完成后自动保存到题型解法。你可以离开此页面，稍后到「题型解法」查看结果。
+                </span>
+              )}
             </div>
           )}
           {editLoading && (

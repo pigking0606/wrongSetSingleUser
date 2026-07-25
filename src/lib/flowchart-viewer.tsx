@@ -2,6 +2,7 @@
 
 import { useState, useId } from "react";
 import type { FlowNode, FlowEdge, NodeShape, AnchorPos } from "./flowchart-editor";
+import MathText from "./math-text";
 
 interface Props {
   data: { nodes: FlowNode[]; edges: FlowEdge[] };
@@ -102,10 +103,18 @@ export default function FlowchartViewer({ data, maxHeight = 280 }: Props) {
         <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
           <path d={shapePath(node.shape, node.w, node.h)}
             fill="#ffffff" stroke="#1a1a1a" strokeWidth="1.5" />
-          <text x={node.w / 2} y={node.h / 2} textAnchor="middle" dominantBaseline="middle"
-            fontSize="12" fill="#1a1a1a" style={{ userSelect: "none" }}>
-            {node.text}
-          </text>
+          {/* 用 foreignObject 嵌入 HTML + MathText，支持 LaTeX 渲染 */}
+          <foreignObject x={0} y={0} width={node.w} height={node.h}>
+            <div style={{
+              width: "100%", height: "100%", display: "flex",
+              alignItems: "center", justifyContent: "center",
+              textAlign: "center", fontSize: "12px", fontWeight: 500,
+              color: "#1a1a1a", padding: "0 4px", boxSizing: "border-box",
+              overflow: "hidden", userSelect: "none", lineHeight: 1.3,
+            }}>
+              <MathText text={node.text} />
+            </div>
+          </foreignObject>
         </g>
       ))}
     </svg>

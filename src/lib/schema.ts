@@ -86,6 +86,14 @@ export async function initSchema() {
       FOREIGN KEY (batch_id) REFERENCES ai_suggestion_batches(id) ON DELETE CASCADE,
       FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // AI 生成题型解法的批次表：后台执行，完成后自动 INSERT solution_methods
+    `CREATE TABLE IF NOT EXISTS ai_method_batches (
+      id VARCHAR(64) PRIMARY KEY,
+      status VARCHAR(50) NOT NULL DEFAULT 'pending',
+      method_id INT,
+      error_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 
   for (const sql of tables) {

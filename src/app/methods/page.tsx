@@ -118,26 +118,6 @@ export default function MethodsPage() {
 
   useEffect(() => { loadMethods(); }, [loadMethods]);
 
-  // 挂载时检查 sessionStorage 是否有 AI 预填数据（从 questions 页面跳转过来）
-  useEffect(() => {
-    const stored = sessionStorage.getItem("aiGeneratedMethod");
-    if (stored) {
-      try {
-        const data = JSON.parse(stored);
-        setFormTitle(data.title || "");
-        setFormContent(data.content || "");
-        if (data.flowchart && Array.isArray(data.flowchart.nodes) && data.flowchart.nodes.length > 0) {
-          const fc = { nodes: data.flowchart.nodes, edges: data.flowchart.edges || [] };
-          setAiFlowchartData(fc);    // 传给编辑器作 initialNodes/initialEdges
-          setFlowchartData(fc);      // 同步到可保存状态，避免用户不打开编辑器就丢失流程图数据
-        }
-        setAiGenerated(true);
-        setShowForm(true); // 显示表单以展示预填数据
-        sessionStorage.removeItem("aiGeneratedMethod");
-      } catch { /* ignore */ }
-    }
-  }, []);
-
   const resetForm = () => {
     setEditId(null); setFormTitle(""); setFormSubject(null); setFormL2(null);
     setFormKp(null); setFormContent("");
@@ -474,8 +454,8 @@ export default function MethodsPage() {
         <FlowchartEditor
           onClose={() => setShowFlowchart(false)}
           onSave={handleFlowchartSave}
-          initialNodes={aiFlowchartData?.nodes}
-          initialEdges={aiFlowchartData?.edges}
+          initialNodes={aiFlowchartData?.nodes || flowchartData?.nodes}
+          initialEdges={aiFlowchartData?.edges || flowchartData?.edges}
         />
       )}
 
