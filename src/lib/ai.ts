@@ -746,7 +746,7 @@ interface OcrClassifyResult {
   classification: { subject: string; chapter: string; knowledgePoint: string };
 }
 
-async function buildOcrClassifyPrompt(chapterTree: ChapterRow[]): Promise<string> {
+async function buildOcrClassifyPrompt(chapterTree: ChapterRow[], bankName?: string): Promise<string> {
   const l1 = chapterTree.filter(c => c.level === 1);
   const l2 = chapterTree.filter(c => c.level === 2);
   const l3 = chapterTree.filter(c => c.level === 3);
@@ -762,12 +762,17 @@ async function buildOcrClassifyPrompt(chapterTree: ChapterRow[]): Promise<string
   }
   const tree = lines.join("\n");
 
+  // 题库名称作为分类辅助依据（题库名称通常反映题目类别，如"数学660题"、"408真题"等）
+  const bankHint = bankName
+    ? `\n## 题库信息（重要分类依据）\n本题来自题库「${bankName}」。题库名称通常反映题目所属学科类别，请在分类时优先参考：\n- 含"数学/高数/线代/660/880/1000/1800"等 → 大概率为数学二\n- 含"408/计组/数据结构/操作系统/网络/真题"等 → 大概率为408\n- 含"英语/阅读/翻译/完形"等 → 大概率为英语二\n- 含"政治/马原/毛中特/史纲/思修"等 → 大概率为政治\n题库名称仅作辅助参考，最终分类仍以题目内容关键词为准。\n`
+    : "";
+
   return `你是题目OCR识别与分类专家。本轮只需完成两件事：1) 精准 OCR 题干 2) 归类到考研科目。
 不要推导答案，不要写解析。
 
 思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
 输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
-
+${bankHint}
 ## 科目体系（必须严格使用以下名称，不得修改、缩写、自创）
 ${tree}
 
@@ -820,8 +825,9 @@ async function analyzeOcrAndClassify(
   imageBase64: string,
   mimeType: string,
   chapterTree: ChapterRow[],
+  bankName?: string,
 ): Promise<OcrClassifyResult> {
-  const systemPrompt = await buildOcrClassifyPrompt(chapterTree);
+  const systemPrompt = await buildOcrClassifyPrompt(chapterTree, bankName);
   const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
   if (!apiKey) throw new AiApiError("vision_key 未配置，请在设置页面填写", 500);
 
@@ -887,10 +893,22 @@ const ANSWER_EXPLAIN_PROMPT = `你是考研命题专家。基于已 OCR 的题�
 思考过程可以内部进行，但输出的必须是最终 JSON，不要把思考过程写进任何字段。
 输出的第一个字符必须是 \`{\`，最后一个字符必须是 \`}\`。
 
+## 考研数学适配性要求（数学题必须遵守）
+- 解法必须符合考研数学大纲范围，禁止使用超纲方法（如数学二不考概率统计、级数等内容）
+- 优先使用考研通用教材（同济高数/线代、浙大概率等）中的标准方法和符号体系
+- 解题步骤的深度和严谨度应匹配考研要求：关键步骤不可跳过，中间结论需有依据
+- 若题目有多种解法，优先给出考研考场最实用的方法（计算量小、不易出错、适用面广）
+
+## 解题技巧性与方法复用性
+- explanation 末尾应用一句话点出本题考查的**核心题型**和**通用解题套路**（如"本题属于特征值反求参数，通用方法是利用特征多项式=0列方程"）
+- solutions 中的每种解法应标注其适用场景（如"适用于对称矩阵"、"适用于选择题快速排除"）
+- 若存在秒杀技巧/特殊值法/排除法等应试技巧，应作为单独解法给出并在 name 中标注"技巧法"
+- 解法应注重可迁移性：提炼出可复用到同类题目的关键步骤，而非仅针对本题的特例计算
+
 ## 输出字段
 - correctAnswer：只给出该题的正确答案
-- explanation：100-200 字解析，包含 ①关键知识点 ②分步推导 ③易错点
-- solutions：1-2 种解法，每种含 name / steps[] / answer
+- explanation：100-200 字解析，包含 ①关键知识点 ②分步推导 ③易错点 ④核心题型与通用套路
+- solutions：1-2 种解法，每种含 name（含适用场景/技巧标注）/ steps[] / answer
 
 ## 数学公式规范
 - 必须统一使用 $...$ 作为行内公式分隔符，禁止使用 \\( ... \\) 或 \\[ ... \\]
@@ -979,7 +997,8 @@ export async function analyzeImageTwoStep(
   imageBase64: string,
   mimeType: string,
   chapterTree: ChapterRow[],
-  userAnswer?: string
+  userAnswer?: string,
+  bankName?: string,
 ): Promise<AiAnalysisResult> {
   if (!await loadSetting("vision_key", "DASHSCOPE_API_KEY") && !await loadSetting("text_key", "DEEPSEEK_API_KEY")) {
     throw new AiApiError("API key 未配置，请在设置页面填写", 500);
@@ -988,7 +1007,7 @@ export async function analyzeImageTwoStep(
   // Step 1: OCR + classify (vision model + image)
   // 第一步失败 = 整体失败（OCR 是后续所有步骤的前提，没有 OCR 无法解题）
   console.log("[analyzeImageTwoStep] Step 1: OCR + classify");
-  const ocrResult = await analyzeOcrAndClassify(imageBase64, mimeType, chapterTree);
+  const ocrResult = await analyzeOcrAndClassify(imageBase64, mimeType, chapterTree, bankName);
 
   // Step 2: Answer + explain (text model, NO image — eliminates "看图猜答案")
   // 第二步失败 = 只丢答案/解析，OCR 和分类仍可用，标记 error_reason 供前端触发重解析

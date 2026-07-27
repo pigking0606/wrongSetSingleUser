@@ -16,8 +16,8 @@ export interface ClassificationResult {
 export async function performAnalysis(questionId: number): Promise<ClassificationResult | null> {
   await initSchema();
 
-  const q = await queryOne<{ id: number; image_path: string; user_answer: string | null }>(
-    "SELECT id, image_path, user_answer FROM questions WHERE id=?", [questionId]
+  const q = await queryOne<{ id: number; image_path: string; user_answer: string | null; bank_id: number | null }>(
+    "SELECT id, image_path, user_answer, bank_id FROM questions WHERE id=?", [questionId]
   );
   if (!q) {
     console.error("performAnalysis: question not found", questionId);
@@ -39,11 +39,18 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     "SELECT id, name, level, parent_id FROM chapters ORDER BY level, id"
   );
 
+  // 查询题库名称作为分类辅助依据（题库名称通常反映题目类别，如"660题"、"真题"等）
+  let bankName: string | null = null;
+  if (q.bank_id) {
+    const bank = await queryOne<{ name: string }>("SELECT name FROM banks WHERE id=?", [q.bank_id]);
+    bankName = bank?.name || null;
+  }
+
   try {
     let result: AiAnalysisResult;
     try {
       // 新版两步拆分：视觉模型做 OCR+分类 → 文本模型做答案+解析
-      result = await analyzeImageTwoStep(base64, mimeType, chapterTree, q.user_answer || undefined);
+      result = await analyzeImageTwoStep(base64, mimeType, chapterTree, q.user_answer || undefined, bankName || undefined);
     } catch (err) {
       // 兜底：两步中任意一步失败，都进入错误流程，记录错误原因
       console.error("[performAnalysis] analyzeImageTwoStep failed for question", questionId, err);

@@ -64,6 +64,8 @@ export default function PlanPage() {
   const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // 防止 lazy cron 重复触发（每个日期只自动触发一次）
   const autoTriggeredRef = useRef<Set<string>>(new Set());
+  // 跟踪当前加载的日期，防止切换日期后旧请求覆盖新状态（竞态保护）
+  const loadingDateRef = useRef<string>("");
   const [stats, setStats] = useState({ streak: 0, totalTasks: 0, avgPct: 0, avgDifficulty: 0, todayMinutes: 0 });
   const [feedback, setFeedback] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
@@ -156,7 +158,8 @@ export default function PlanPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // 通用轮询：根据 batch_id 轮询 AI 建议生成结果，ready/error 时收尾
-  const pollAiSuggestions = useCallback((batchId: string) => {
+  // pollDate 用于竞态保护：若切换了日期，旧轮询结果不再写入 state
+  const pollAiSuggestions = useCallback((batchId: string, pollDate?: string) => {
     if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
     let elapsed = 0;
     aiPollRef.current = setInterval(async () => {
@@ -164,6 +167,8 @@ export default function PlanPage() {
       try {
         const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
         const d = await r.json();
+        // 竞态保护：若用户已切换日期，丢弃旧轮询结果
+        if (pollDate && loadingDateRef.current !== pollDate) return;
         if (d.status === "ready") {
           if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
           setAiSuggesting(false);
@@ -188,10 +193,21 @@ export default function PlanPage() {
   // 刷新页面后从 DB 加载今天最新的 AI 建议
   // 同时实现 lazy cron：若今天无 batch（或仅有 error batch）且已过凌晨 3 点，自动触发新一次生成
   const loadLatestSuggestions = useCallback(async (date: string) => {
+    // 标记当前正在加载的日期，并清除旧建议（防止切换日期后显示前一日的建议）
+    loadingDateRef.current = date;
+    setSuggestedTasks([]);
+    setAiReason("");
+    // 清除旧的轮询状态（切换日期后旧轮询不应继续写入 state）
+    if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+    setAiSuggesting(false);
+    setAiBatchId(null);
+
     try {
       const batchRes = await fetch(`/api/plan-tasks/ai-suggest/latest?date=${date}`);
       if (!batchRes.ok) return;
       const batchData = await batchRes.json();
+      // 竞态保护：若用户已切换日期，丢弃旧请求结果
+      if (loadingDateRef.current !== date) return;
       const batchId: string | null = batchData.batch_id;
       const batchStatus: string | null = batchData.status;
 
@@ -200,6 +216,8 @@ export default function PlanPage() {
         const sugRes = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
         if (!sugRes.ok) return;
         const sugData = await sugRes.json();
+        // 再次检查日期是否仍一致
+        if (loadingDateRef.current !== date) return;
         if (Array.isArray(sugData.suggestions) && sugData.suggestions.length > 0) {
           setSuggestedTasks(sugData.suggestions.map((t: any) => ({ ...t, adopted: t.adopted || false })));
           setAiReason(sugData.reason || "");
@@ -208,7 +226,7 @@ export default function PlanPage() {
         // 后台仍在生成 → 恢复轮询（不重复触发）
         setAiSuggesting(true);
         setAiBatchId(batchId);
-        pollAiSuggestions(batchId);
+        pollAiSuggestions(batchId, date);
       } else {
         // 无 batch 或最近一次为 error → 判断是否需要 lazy cron 自动触发
         // 仅对今天自动触发，且要求当前时间 ≥ 03:00（凌晨 3 点后）
@@ -225,9 +243,10 @@ export default function PlanPage() {
                 body: JSON.stringify({ date }),
               });
               const data = await res.json();
+              if (loadingDateRef.current !== date) return; // 竞态保护
               if (res.ok && data.batch_id) {
                 setAiBatchId(data.batch_id);
-                pollAiSuggestions(data.batch_id);
+                pollAiSuggestions(data.batch_id, date);
               } else {
                 setAiSuggesting(false);
               }
@@ -413,6 +432,8 @@ export default function PlanPage() {
   const aiSuggest = async () => {
     setAiSuggesting(true); setAiReason(""); setSuggestedTasks([]);
     if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+    // 标记当前日期，用于轮询竞态保护
+    loadingDateRef.current = curDate;
     try {
       const res = await fetch("/api/plan-tasks/ai-suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: curDate }) });
       const data = await res.json();
@@ -424,14 +445,20 @@ export default function PlanPage() {
       setAiBatchId(data.batch_id);
       // 标记今日已触发（手动触发也写入，避免后续 lazy cron 重复触发）
       autoTriggeredRef.current.add(curDate);
-      // 轮询获取后台生成结果
+      // 轮询获取后台生成结果（传入 curDate 用于竞态保护）
       let elapsed = 0;
       const batchId = data.batch_id;
+      const pollDate = curDate;
       aiPollRef.current = setInterval(async () => {
         elapsed += 3;
         try {
           const r = await fetch(`/api/plan-tasks/ai-suggest?batch_id=${batchId}`);
           const d = await r.json();
+          // 竞态保护：若用户已切换日期，丢弃旧轮询结果
+          if (loadingDateRef.current !== pollDate) {
+            if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
+            return;
+          }
           if (d.status === "ready") {
             if (aiPollRef.current) { clearInterval(aiPollRef.current); aiPollRef.current = null; }
             setAiSuggesting(false);
