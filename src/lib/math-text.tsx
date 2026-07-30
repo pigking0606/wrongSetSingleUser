@@ -140,20 +140,190 @@ function applySplitOptions(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// CodeBlock — 渲染 ```代码块```，等宽字体 + 保留换行
+// ---------------------------------------------------------------------------
+
+const CodeBlock = memo(function CodeBlock({ code }: { code: string }) {
+  return (
+    <pre style={{
+      fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+      fontSize: ".85rem",
+      lineHeight: 1.5,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-all",
+      background: "var(--bg-hover, #f5f5f5)",
+      padding: ".6rem .75rem",
+      borderRadius: "6px",
+      margin: ".5rem 0",
+      overflowX: "auto",
+    }}>
+      {code}
+    </pre>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// MarkdownTable — 渲染 | col1 | col2 | 格式的表格
+// ---------------------------------------------------------------------------
+
+const MarkdownTable = memo(function MarkdownTable({ rows }: { rows: string[][] }) {
+  if (rows.length < 2) return null;
+  // 第一行是表头，第二行是分隔符(|---|---|)，第三行起是数据
+  const header = rows[0];
+  const body = rows.slice(2); // 跳过分隔行
+
+  const cellStyle: React.CSSProperties = {
+    padding: ".3rem .5rem",
+    border: "1px solid var(--border, #ddd)",
+    textAlign: "center",
+    fontSize: ".85rem",
+  };
+  const thStyle: React.CSSProperties = {
+    ...cellStyle,
+    fontWeight: 600,
+    background: "var(--bg-hover, #f5f5f5)",
+  };
+
+  return (
+    <table style={{
+      borderCollapse: "collapse",
+      margin: ".5rem 0",
+      fontSize: ".85rem",
+    }}>
+      <thead>
+        <tr>{header.map((h, i) => <th key={i} style={thStyle}>{h.trim()}</th>)}</tr>
+      </thead>
+      <tbody>
+        {body.map((row, ri) => (
+          <tr key={ri}>
+            {row.map((c, ci) => <td key={ci} style={cellStyle}>{c.trim()}</td>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 预分割：提取代码块(```...```) 和 Markdown 表格(| ... |)
+// 这些结构需要保留原始格式，不能被 LaTeX 分词破坏
+// ---------------------------------------------------------------------------
+
+interface PreSegment {
+  type: "code" | "table" | "normal";
+  value: string;
+}
+
+function extractCodeAndTables(text: string): PreSegment[] {
+  const segments: PreSegment[] = [];
+  // 匹配 ```代码块```（含语言标识可选）
+  const codeBlockRe = /```[a-zA-Z]*\n?([\s\S]*?)```/g;
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = codeBlockRe.exec(text)) !== null) {
+    // 代码块前的普通文本
+    if (m.index > lastIdx) {
+      const before = text.slice(lastIdx, m.index);
+      if (before) segments.push(...splitTables(before));
+    }
+    // 代码块内容（去掉末尾换行）
+    const code = m[1].replace(/\n$/, "");
+    segments.push({ type: "code", value: code });
+    lastIdx = m.index + m[0].length;
+  }
+  // 剩余普通文本
+  if (lastIdx < text.length) {
+    const rest = text.slice(lastIdx);
+    if (rest) segments.push(...splitTables(rest));
+  }
+  return segments;
+}
+
+// 从普通文本中分离 Markdown 表格（连续的 | 开头行，至少2行含|）
+function splitTables(text: string): PreSegment[] {
+  const segments: PreSegment[] = [];
+  const lines = text.split("\n");
+  let buffer: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const isTableRow = line.trim().startsWith("|") && line.trim().endsWith("|") && line.includes("-");
+    const nextIsTableRow = i + 1 < lines.length && lines[i + 1].trim().startsWith("|");
+
+    // 表格判定：当前行以|开头且含-（表头），下一行也以|开头（数据行）
+    // 或当前行以|开头且上一行是分隔符
+    if (line.trim().startsWith("|") && (line.includes("-") || nextIsTableRow)) {
+      // 收集连续的表格行
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      // 先 flush buffer
+      if (buffer.length > 0) {
+        segments.push({ type: "normal", value: buffer.join("\n") });
+        buffer = [];
+      }
+      // 解析表格行为二维数组
+      const rows = tableLines.map(l =>
+        l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim())
+      );
+      // 至少3行（表头+分隔+1数据）才算表格
+      if (rows.length >= 3) {
+        segments.push({ type: "table", value: JSON.stringify(rows) });
+      } else {
+        // 不够格，当普通文本
+        segments.push({ type: "normal", value: tableLines.join("\n") });
+      }
+    } else {
+      buffer.push(line);
+      i++;
+    }
+  }
+  if (buffer.length > 0) {
+    segments.push({ type: "normal", value: buffer.join("\n") });
+  }
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
 // MathText — parent component
 // ---------------------------------------------------------------------------
 
 export default memo(function MathText({ text, className, block, splitOptions }: MathTextProps) {
   const processed = splitOptions ? applySplitOptions(text) : text;
   const src = block ? (processed.startsWith("$$") ? processed : `$$${processed}$$`) : processed;
-  const tokens = tokenize(src);
+
+  // 先提取代码块和表格，剩余文本走原有 LaTeX 分词逻辑
+  const segments = extractCodeAndTables(src);
 
   return (
     <span className={className}>
-      {tokens.map((t, i) => {
-        if (t.type === "block") return <MathAtom key={i} math={t.value} block />;
-        if (t.type === "inline" || t.type === "auto") return <MathAtom key={i} math={t.value} />;
-        return <TextAtom key={i} text={t.value} />;
+      {segments.map((seg, si) => {
+        if (seg.type === "code") {
+          return <CodeBlock key={si} code={seg.value} />;
+        }
+        if (seg.type === "table") {
+          try {
+            const rows = JSON.parse(seg.value) as string[][];
+            return <MarkdownTable key={si} rows={rows} />;
+          } catch {
+            return <TextAtom key={si} text={seg.value} />;
+          }
+        }
+        // normal：走原有 LaTeX 分词
+        const tokens = tokenize(seg.value);
+        return (
+          <span key={si}>
+            {tokens.map((t, i) => {
+              if (t.type === "block") return <MathAtom key={i} math={t.value} block />;
+              if (t.type === "inline" || t.type === "auto") return <MathAtom key={i} math={t.value} />;
+              return <TextAtom key={i} text={t.value} />;
+            })}
+          </span>
+        );
       })}
     </span>
   );
