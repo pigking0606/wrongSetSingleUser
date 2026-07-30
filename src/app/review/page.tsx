@@ -132,6 +132,12 @@ export default function ReviewPage() {
   const current = questions[currentIdx];
   const solutions = (() => { if (!current.ai_solutions) return []; try { return JSON.parse(current.ai_solutions); } catch { return []; } })();
 
+  // 切题时：若 OCR 文本为空或过短（含图题目），自动展开图片显示，方便用户看图做题
+  useEffect(() => {
+    const ocrLen = (current.ocr_text || "").trim().length;
+    setShowImage(ocrLen < 20 && !!current.image_path);
+  }, [currentIdx, current.ocr_text, current.image_path]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

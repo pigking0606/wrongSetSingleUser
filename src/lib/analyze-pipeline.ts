@@ -79,15 +79,20 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     // 第一步+第二步都成功：正常入库
     if (result.error_reason) {
       console.warn("[performAnalysis] Step 2 failed for question", questionId, "— saving OCR only:", result.error_reason);
-      runAndSave(
+      await runAndSave(
         `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='error', error_reason=? WHERE id=?`,
         [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, result.error_reason.slice(0, 200), questionId]
-      ).catch(err => console.error("Failed to save partial AI analysis for question", questionId, err));
+      );
     } else {
-      runAndSave(
+      // OCR 文本为空但答案/解析非空：说明 OCR 步骤异常（含图题目可能 JSON 解析失败）
+      // 记录警告便于排查，但仍入库（答案/解析有效）
+      if (!safeOcr && (safeAnswer || safeExpl)) {
+        console.warn("[performAnalysis] question", questionId, "— OCR text is empty but answer/explanation exist (likely image-heavy question OCR failed)");
+      }
+      await runAndSave(
         `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
         [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, questionId]
-      ).catch(err => console.error("Failed to save AI analysis for question", questionId, err));
+      );
     }
 
     return cls;

@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
-import { autoWrapMathDelimiters, sanitizeLatex, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
+import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
 
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
@@ -197,7 +197,9 @@ async function processReanalyze(
     // Layer 1: basic sanitize — apply to result in-place
     try {
       if (!answerOnly) {
-        result.ocrText = sanitizeLatex(autoWrapMathDelimiters(result.ocrText || ocrText));
+        // 净化 OCR 文本：去除题号前缀、真题标签、残留手写标记
+        const rawOcr = result.ocrText || ocrText || "";
+        result.ocrText = sanitizeOcrText(sanitizeLatex(autoWrapMathDelimiters(rawOcr)));
       }
       result.correctAnswer = sanitizeLatex(autoWrapMathDelimiters(result.correctAnswer || ""));
       result.explanation = sanitizeLatex(autoWrapMathDelimiters(result.explanation || ""));
@@ -219,12 +221,12 @@ async function processReanalyze(
 
     // Save to DB first (before risky Layer 2), so we don't lose the AI output
     if (answerOnly) {
-      runAndSave(
+      await runAndSave(
         `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
         [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
       );
     } else {
-      runAndSave(
+      await runAndSave(
         `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
         [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
       );
@@ -279,12 +281,12 @@ async function processReanalyze(
 
       // Re-save with fixed LaTeX
       if (answerOnly) {
-        runAndSave(
+        await runAndSave(
           `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=? WHERE id=?`,
           [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
         );
       } else {
-        runAndSave(
+        await runAndSave(
           `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=? WHERE id=?`,
           [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
         );

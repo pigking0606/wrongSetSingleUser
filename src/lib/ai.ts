@@ -810,15 +810,65 @@ ${tree}
 - ❌ 含进程/调度的题目 → 分到"计算机组成原理"（正确：操作系统）
 
 ## ocrText 规范
-- 完整逐字识别题目，去掉题号前缀（如 '32.'、'【2021统考真题】'）
-- 只保留印刷体题干正文，忽略图片中的手写笔迹（手写答案/演算/批注一律不识别）
+- 完整逐字识别题目，只保留印刷体题干正文和选项
+- **必须去除题号前缀**：如 '32.'、'33、'、'(1)'、'一、'、'二、' 等一律删掉
+- **必须去除真题/来源信息**：如 '【2021统考真题】'、'【2019年408真题】'、'（考研真题）'、'来源：xxx' 等一律删掉
+- **必须忽略所有手写笔迹**：手写答案（如红笔写的 A/B/C/D、数字、√、×）、手写演算过程、手写批注一律不识别、不输出
+- **区分印刷体 vs 手写体**：只识别印刷体（机器印刷/电子排版）的文字；手写体（含红笔/蓝笔/铅笔的手写字迹）一律忽略
 - 选择题选项每行一个：\\nA. xxx\\nB. xxx\\nC. xxx\\nD. xxx
 - 行列式/矩阵识别为整体 LaTeX：$\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}$
-- 图表/拓扑图用文字详细描述（节点名、连接关系、IP、带宽等），缺失会导致后续无法解题
+- **含图的题目（数据结构图/网络拓扑图/AOE图/有向图/无向图/二叉树等）**：
+  - 必须用文字详细描述图的结构（节点名、连接关系、边权值、IP、带宽等）
+  - 描述格式示例："图结构：节点A→节点B(权值3)，节点B→节点C(权值5)，..."
+  - 即使图很复杂也要完整描述，缺失会导致后续无法解题
+  - 描述放在 ocrText 中对应位置，与题干文字一起输出
 - JSON 内 LaTeX 反斜杠写成双反斜杠 \\\\frac
+- **ocrText 绝不能为空字符串**：即使题目主要是图，也要输出图的文字描述
 
 输出纯 JSON（不含 markdown 包裹）：
 {"ocrText":"题干","questionType":"single_choice","classification":{"subject":"","chapter":"","knowledgePoint":""}}`;
+}
+
+// ---------------------------------------------------------------------------
+// OCR 文本净化：去除题号前缀、真题标签、残留手写标记
+// AI 虽被要求去除这些内容，但实际输出可能仍包含，这里做兜底清理
+// ---------------------------------------------------------------------------
+export function sanitizeOcrText(text: string): string {
+  if (!text) return text;
+  let result = text;
+
+  // 1. 去除开头的题号前缀：'32.' '33、' '(1)' '一、' '二、' '第3题' 等
+  //    反复去除直到开头不再是题号
+  let changed = true;
+  while (changed) {
+    changed = false;
+    // 阿拉伯数字题号：'32.' '32、' '32) ' '32、 '
+    const m1 = result.match(/^\s*(\d{1,3})[\.、\)）]\s*/);
+    if (m1) { result = result.slice(m1[0].length); changed = true; continue; }
+    // 中文数字题号：'一、' '二、' '（一）' '(一)'
+    const m2 = result.match(/^\s*[（(]?[一二三四五六七八九十]{1,3}[）)、]\s*/);
+    if (m2) { result = result.slice(m2[0].length); changed = true; continue; }
+    // '第X题' '第X章'
+    const m3 = result.match(/^\s*第[一二三四五六七八九十0-9]+[题章]\s*/);
+    if (m3) { result = result.slice(m3[0].length); changed = true; continue; }
+    // '(1)' '(2)' 开头
+    const m4 = result.match(/^\s*[（(]\d{1,2}[）)]\s*/);
+    if (m4) { result = result.slice(m4[0].length); changed = true; continue; }
+  }
+
+  // 2. 去除真题/来源标签：【2021统考真题】【2019年408真题】（考研真题）来源：xxx
+  result = result.replace(/【[^】]*?(?:真题|统考|考研|来源)[^】]*?】/g, "");
+  result = result.replace(/[（(][^）)]*?(?:真题|统考|考研|来源)[^）)]*?[）)]/g, "");
+  result = result.replace(/来源[:：]\s*[^\n]*/g, "");
+
+  // 3. 去除残留的手写答案标记（行首或选项后的红笔标记）
+  //    如 '答案：A' '我的答案：B' '√' '×' 等（仅清理明显的答案标记行）
+  result = result.replace(/^\s*(?:我的)?答案[:：]\s*[A-F√×对错]\s*$/gm, "");
+
+  // 4. 清理首尾多余空白
+  result = result.trim();
+
+  return result;
 }
 
 async function analyzeOcrAndClassify(
@@ -873,8 +923,23 @@ async function analyzeOcrAndClassify(
     const jsonStr = stripThinkingBeforeJson(rawText);
     const parsed = parseAiJson(jsonStr);
 
+    // 净化 OCR 文本：去除题号前缀、真题标签、残留手写标记
+    let ocrText = (parsed.ocrText || "").replace(/\\n/g, "\n").replace(/\\t/g, " ");
+
+    // 兜底恢复：若 ocrText 为空（含图题目 JSON 解析可能截断 ocrText 字段），
+    // 尝试用正则从原始响应中提取 "ocrText":"..." 的值
+    if (!ocrText || ocrText.trim().length === 0) {
+      const m = rawText.match(/"ocrText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (m && m[1]) {
+        ocrText = m[1].replace(/\\n/g, "\n").replace(/\\t/g, " ").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+        console.warn("[analyzeOcrAndClassify] ocrText was empty, recovered via regex extraction:", ocrText.slice(0, 100));
+      }
+    }
+
+    ocrText = sanitizeOcrText(ocrText);
+
     return {
-      ocrText: (parsed.ocrText || "").replace(/\\n/g, "\n").replace(/\\t/g, " "),
+      ocrText,
       questionType: parsed.questionType || "single_choice",
       classification: parsed.classification || { subject: "", chapter: "", knowledgePoint: "" },
     };
