@@ -57,13 +57,15 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
       throw err;
     }
 
-    const ocrText = autoWrapMathDelimiters(result.ocrText);
-    const correctAnswer = autoWrapMathDelimiters(result.correctAnswer);
-    const explanation = autoWrapMathDelimiters(result.explanation);
+    // analyzeImageTwoStep 已对 ocrText 做过 autoWrapMathDelimiters + sanitizeLatex 处理
+    // 此处不再重复调用 autoWrapMathDelimiters，避免破坏代码块（```...```）和表格结构
+    const ocrText = result.ocrText || "";
+    const correctAnswer = autoWrapMathDelimiters(result.correctAnswer || "");
+    const explanation = autoWrapMathDelimiters(result.explanation || "");
     const solutions = (result.solutions || []).map(s => ({
       ...s,
-      answer: autoWrapMathDelimiters(s.answer),
-      steps: s.steps.map(autoWrapMathDelimiters),
+      answer: autoWrapMathDelimiters(s.answer || ""),
+      steps: (s.steps || []).map(st => autoWrapMathDelimiters(st || "")),
     }));
 
     const cls = matchChapters(chapterTree, result.classification);

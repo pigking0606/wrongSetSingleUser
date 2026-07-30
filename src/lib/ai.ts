@@ -44,9 +44,19 @@ const ENV_BLOCK = /(\\begin\{([^}]+)\}[\s\S]*?\\end\{\2\})/g;
 export function autoWrapMathDelimiters(text: string) {
   if (!text) return text;
 
+  // Protect code blocks (```...```) from LaTeX wrapping — code blocks may contain
+  // LaTeX-like content (V_1, a^2, \begin{vmatrix}...) that should NOT be wrapped in $...$
+  const codeBlocks: string[] = [];
+  const CB_PLACEHOLDER = (i: number) => `\u0000CB${i}\u0000`;
+  text = text.replace(/```[a-zA-Z]*\n?([\s\S]*?)```/g, (full) => {
+    const i = codeBlocks.length;
+    codeBlocks.push(full);
+    return CB_PLACEHOLDER(i);
+  });
+
   // Step 1: split by display math blocks ($$...$$), preserve them untouched
   const parts = text.split(BLOCK_RE);
-  return parts.map((part, i) => {
+  let result = parts.map((part, i) => {
     if (part.startsWith("$$") && part.endsWith("$$") && i % 2 === 1) return part;
 
     // Step 2: within non-display-math text, split by inline math ($...$)
@@ -72,6 +82,13 @@ export function autoWrapMathDelimiters(text: string) {
       return processed;
     }).join("");
   }).join("");
+
+  // Restore code blocks
+  for (let i = 0; i < codeBlocks.length; i++) {
+    result = result.replace(CB_PLACEHOLDER(i), codeBlocks[i]);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +179,10 @@ async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<vo
   const fields: Record<string, string> = {};
   if (result.explanation && result.explanation.length > 30) fields["explanation"] = result.explanation;
   if (result.correctAnswer && result.correctAnswer.length > 30) fields["correctAnswer"] = result.correctAnswer;
-  if (result.ocrText && result.ocrText.length > 30) fields["ocrText"] = result.ocrText;
+  // 跳过含代码块/表格的 ocrText — 结构化图片描述不应被 dedup AI 误删
+  if (result.ocrText && result.ocrText.length > 30 && !result.ocrText.includes("```") && !result.ocrText.includes("|---|")) {
+    fields["ocrText"] = result.ocrText;
+  }
   const fixed = await dedupWithAI(fields, apiKey);
   // 修复：dedupWithAI 可能返回 undefined（解析失败或网络错误时），写回前必须检查
   // 否则 result.explanation = undefined 会让后续 SQL 报 "Bind parameters must not contain undefined"
@@ -512,7 +532,10 @@ export async function fixLatexWithAI(
 async function applyLatexFixer(result: AiAnalysisResult, apiKey: string): Promise<void> {
   // Collect all text fields into a flat map
   const fields: Record<string, string> = {};
-  if (result.ocrText) fields["ocrText"] = result.ocrText;
+  // 跳过含代码块/表格的 ocrText — 结构化图片描述不应被 LaTeX fixer AI 修改或破坏
+  if (result.ocrText && !result.ocrText.includes("```") && !result.ocrText.includes("|---|")) {
+    fields["ocrText"] = result.ocrText;
+  }
   if (result.correctAnswer) fields["correctAnswer"] = result.correctAnswer;
   if (result.explanation) fields["explanation"] = result.explanation;
   for (let i = 0; i < result.solutions.length; i++) {
@@ -775,6 +798,13 @@ async function buildOcrClassifyPrompt(chapterTree: ChapterRow[], bankName?: stri
 ${bankHint}
 ## 科目体系（必须严格使用以下名称，不得修改、缩写、自创）
 ${tree}
+
+## 图片关联性判断（OCR 前必须先执行）
+1. **首先判断图片是否包含一道完整的题目**：图片中应有清晰的印刷体题干文字（题目描述+可选的选项/条件）
+2. **如果图片不包含题目内容**（如纯手写演算、纯答案、空白、无关图片），ocrText 输出"[图片非当前题目，跳过解析]"，classification 各字段留空字符串，questionType 设为 "short_answer"
+3. **如果图片包含多道题目**（如截图含上下两题），只识别第一道题（最上方/最上方的完整题目），忽略其余题目。不要把下一题的文字混入当前 ocrText
+4. **如果图片主要是下一题的内容**（当前题目文字被截断或不完整，图片主体是下一题），同样输出"[图片非当前题目，跳过解析]"
+5. 判断依据：题号是否连贯、题干是否完整、选项是否属于当前题目
 
 ## 分类规则（必须严格遵守，违反为严重错误）
 

@@ -48,6 +48,14 @@ const REANALYZE_PROMPT = `你是考研命题专家。请重新分析以下题目
 - 必须去掉所有题号前缀（如"32."、"【2021统考真题】"、"一、选择题"）
 - 只保留印刷体的题干正文和选项，忽略图片中的手写笔迹（手写答案/演算/批注一律不识别）
 - 选择题选项必须每行一个：\\nA. xxx\\nB. xxx\\nC. xxx\\nD. xxx
+- **图片关联性判断**：如果图片不包含题目内容（如纯手写演算、空白、无关图片），或图片主要是下一题的内容，ocrText 输出"[图片非当前题目，跳过解析]"
+- **含图的题目（数据结构图/网络拓扑图/AOE图/有向图/无向图/二叉树等）必须用结构化文字完整描述图**：
+  - 二叉树/树：用缩进列表表示层级，标注左右子节点
+  - 有向图/无向图/带权图：用边列表 "起点 → 终点 (权值)"
+  - 邻接矩阵/散列表：用 Markdown 表格表示
+  - 网络拓扑/IP分配：用结构化列表列出节点、接口、IP
+  - 所有 ASCII/边列表用 \`\`\` 代码块包裹，表格用 Markdown 表格语法
+  - 描述放在 ocrText 中对应位置（题干文字之后、选项之前）
 
 【数学公式规范】
 - 必须统一使用 $...$ 作为行内公式分隔符，禁止使用 \\( ... \\) 或 \\[ ... \\]
@@ -235,7 +243,10 @@ async function processReanalyze(
     // Layer 2: AI LaTeX fix — best-effort, update DB again if successful
     try {
       const fields: Record<string, string> = {};
-      if (!answerOnly && result.ocrText) fields["ocrText"] = result.ocrText;
+      // 跳过含代码块/表格的 ocrText — 结构化图片描述不应被 LaTeX fixer AI 修改或破坏
+      if (!answerOnly && result.ocrText && !result.ocrText.includes("```") && !result.ocrText.includes("|---|")) {
+        fields["ocrText"] = result.ocrText;
+      }
       if (result.correctAnswer) fields["correctAnswer"] = result.correctAnswer;
       if (result.explanation) fields["explanation"] = result.explanation;
       if (result.solutions) {
