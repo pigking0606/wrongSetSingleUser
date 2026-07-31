@@ -119,16 +119,23 @@ async function getVisionUrl() {
   return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
 
-const DEDUP_PROMPT = `你是一个文本精简助手。输入一段AI生成的文本（可能是题目解析或答案），其中AI可能反复推翻自己的说法、写出多个版本的解答。
+const DEDUP_PROMPT = `你是一个文本精简助手。输入一段AI生成的文本（可能是题目解析、答案或解题步骤），其中AI可能反复推翻自己的说法、写出多个版本的解答。
 
-你的任务：删掉所有"自我推翻"的内容（如"等等，不对，应该重新考虑..."之类），只保留最终正确的解答。
+你的任务：删掉所有"自我推翻"的内容，只保留最终正确的解答。
 
 规则：
 1. 删除所有推翻前面内容的部分，只保留最后确定的结论
-2. 不改变最终结论的任何内容（数学公式、文字、步骤全部保留）
-3. 如果没有任何推翻，原样返回
-4. 绝不新增任何内容
-5. 直接返回精简后的文本，不要解释`;
+2. 识别并删除以下自我推翻标志词后的所有内容（包括这些词本身）：
+   - "错误！"、"不对"、"不是"、"纠正后"、"重新分析"、"重新计算"、"再检查"
+   - "但这与...矛盾"、"这与...不符"、"说明...有误"、"疑似有误"
+   - "应为相反结论"、"实际应为"、"应当修正为"
+   - "啊！"、"哦！"等感叹式自我纠正
+   - "综上，正确答案应为"（如果前面已有结论，属于推翻重写）
+3. 如果文中出现"参考答案"vs"我的分析"的冲突讨论，只保留与最终参考答案一致的分析部分
+4. 不改变最终结论的任何内容（数学公式、文字、步骤全部保留）
+5. 如果没有任何推翻，原样返回
+6. 绝不新增任何内容
+7. 直接返回精简后的文本，不要解释`;
 
 async function getTextApiKey() {
   return await loadSetting("text_key", "DEEPSEEK_API_KEY") || await loadSetting("vision_key", "DASHSCOPE_API_KEY") || "";
@@ -183,12 +190,30 @@ async function dedupResult(result: AiAnalysisResult, apiKey: string): Promise<vo
   if (result.ocrText && result.ocrText.length > 30 && !result.ocrText.includes("```") && !result.ocrText.includes("|---|")) {
     fields["ocrText"] = result.ocrText;
   }
+  // solutions 的 steps 是 AI 自我推翻的重灾区，必须处理
+  for (let i = 0; i < result.solutions.length; i++) {
+    const sol = result.solutions[i];
+    for (let j = 0; j < sol.steps.length; j++) {
+      const step = sol.steps[j];
+      // 只处理含自我推翻标志的步骤（长度 > 30 且含推翻关键词）
+      if (step && step.length > 30 && /错误！|不对|纠正后|重新分析|重新计算|再检查|但这与.*矛盾|这与.*不符|说明.*有误|应为相反结论|实际应为|应当修正为|综上.*正确答案应为/.test(step)) {
+        fields[`sol_${i}_step_${j}`] = step;
+      }
+    }
+  }
   const fixed = await dedupWithAI(fields, apiKey);
   // 修复：dedupWithAI 可能返回 undefined（解析失败或网络错误时），写回前必须检查
   // 否则 result.explanation = undefined 会让后续 SQL 报 "Bind parameters must not contain undefined"
   if (fixed["explanation"] && typeof fixed["explanation"] === "string") result.explanation = fixed["explanation"];
   if (fixed["correctAnswer"] && typeof fixed["correctAnswer"] === "string") result.correctAnswer = fixed["correctAnswer"];
   if (fixed["ocrText"] && typeof fixed["ocrText"] === "string") result.ocrText = fixed["ocrText"];
+  // 写回 solutions steps
+  for (let i = 0; i < result.solutions.length; i++) {
+    for (let j = 0; j < result.solutions[i].steps.length; j++) {
+      const key = `sol_${i}_step_${j}`;
+      if (fixed[key] && typeof fixed[key] === "string") result.solutions[i].steps[j] = fixed[key];
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +438,24 @@ function replaceUnicodeMath(text: string): string {
   // 这个问题源于 AI 输出 \to 时反斜杠丢失变成 "to"，再被 OCR 误识别为 "o"
   result = result.replace(/(?<=\b\w)\s+o\s+\\(infty|infty\b)/g, " \\to \\$1");
 
+  // 修复 JSON.parse 破坏的 LaTeX 命令：
+  // \frac 的 \f 被 JSON.parse 当作 form feed (U+000C) → 恢复为 \frac
+  // \tan \theta 的 \t 被 JSON.parse 当作 tab (U+0009) → 恢复为 \tan \theta
+  // \binom \b 的 \b 被当作 backspace (U+0008) → 恢复为 \binom
+  // \rho \r 的 \r 被当作回车 (U+000D) → 恢复为 \rho
+  // \nabla \n 被 JSON.parse 当作换行 → 恢复为 \nabla（已在上面处理）
+  const controlCharCmds: Array<[RegExp, string]> = [
+    [/\x0c(?=rac\b)/g, "\\frac"],           // form feed + rac → \frac
+    [/\x09(?=an\b|an\()/g, "\\tan"],        // tab + an → \tan
+    [/\x09(?=heta\b|heta\{)/g, "\\theta"],  // tab + heta → \theta
+    [/\x09(?=au\b|au\{)/g, "\\tau"],        // tab + au → \tau
+    [/\x08(?=inom\b)/g, "\\binom"],         // backspace + inom → \binom
+    [/\x0d(?=ho\b|ho\{)/g, "\\rho"],        // carriage return + ho → \rho
+  ];
+  for (const [re, replacement] of controlCharCmds) {
+    result = result.replace(re, replacement);
+  }
+
   // 还原代码块
   for (let i = 0; i < codeBlocks.length; i++) {
     result = result.replace(`\u0000CB${i}\u0000`, codeBlocks[i]);
@@ -615,6 +658,8 @@ const LATEX_FIXER_PROMPT = `你是 LaTeX 格式化专家。你会收到一个 JS
 4. \$ 必须成对出现，有开就有闭
 5. 所有 LaTeX 命令（\\frac \\lim \\int \\sum \\sqrt \\ln \\cdot \\left \\right \\to \\infty \\sim 等）必须在 \$...\$ 内部，禁止 \$\ln\$ 这种单独命令块
 6. 只修复 LaTeX 格式，不改变题目含义、文字内容、公式内容
+7. 【关键】JSON 内所有 LaTeX 反斜杠必须写成双反斜杠 \\\\。例如 \\\\frac \\\\lim \\\\tan \\\\theta。
+   单反斜杠会被 JSON 解析器当作转义符破坏命令（\\\\f→换页 \\\\t→制表符），导致 \\frac 变 rac、\\tan 变 an。
 
 输出：直接返回修复后的 JSON，字段结构与输入完全一致，不要添加任何解释。`;
 
@@ -659,14 +704,37 @@ export async function fixLatexWithAI(
     const data = await resp.json();
     const raw: string = data.choices?.[0]?.message?.content || "";
     try {
-      const fixed = JSON.parse(raw);
+      // 关键：AI 返回的 JSON 中 \frac \tan \theta 等可能只有单反斜杠，
+      // 直接 JSON.parse 会把 \f 当 form feed、\t 当 tab，破坏 LaTeX 命令。
+      // 必须先用 fixLatexEscapes 修复反斜杠，再解析。
+      const safeRaw = fixLatexEscapes(raw);
+      const fixed = JSON.parse(safeRaw);
       const result: Record<string, string> = {};
       for (const key of Object.keys(texts)) {
         result[key] = typeof fixed[key] === "string" ? fixed[key] : texts[key];
       }
       return result;
     } catch {
-      return texts;
+      // 解析失败，尝试从 raw 中逐字段正则提取（兜底）
+      try {
+        const result: Record<string, string> = {};
+        for (const key of Object.keys(texts)) {
+          const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, "s");
+          const m = raw.match(re);
+          if (m?.[1]) {
+            try {
+              result[key] = JSON.parse(`"${m[1]}"`);
+            } catch {
+              result[key] = m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+            }
+          } else {
+            result[key] = texts[key];
+          }
+        }
+        return result;
+      } catch {
+        return texts;
+      }
     }
   } catch {
     return texts;
