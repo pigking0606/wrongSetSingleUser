@@ -278,8 +278,154 @@ ${solutionsText || "(无解法)"}
 // Layer 3: Post-process — fix common AI LaTeX mistakes that survived this far
 // ---------------------------------------------------------------------------
 
+// Unicode 数学符号 → LaTeX 命令映射
+// AI 输出常含 Unicode 符号（→ ∞ ∑ √ 等），KaTeX 不识别需转换为 LaTeX
+const UNICODE_MATH_MAP: Array<[RegExp, string]> = [
+  [/\s*→\s*/g, " \\to "],          // 箭头
+  [/∞/g, "\\infty"],                // 无穷
+  [/∑/g, "\\sum"],                  // 求和
+  [/∏/g, "\\prod"],                 // 求积
+  [/∫/g, "\\int"],                  // 积分
+  [/∮/g, "\\oint"],                 // 环路积分
+  [/√(\[[^\]]*\])?\{([^}]*)\}/g, "\\sqrt$1{$2}"],  // √[n]{x} → \sqrt[n]{x}
+  [/√([a-zA-Z0-9])/g, "\\sqrt $1"], // √x → \sqrt x（无花括号）
+  [/≤/g, "\\leq"],                  // 小于等于
+  [/≥/g, "\\geq"],                  // 大于等于
+  [/≠/g, "\\neq"],                  // 不等于
+  [/≈/g, "\\approx"],               // 约等于
+  [/≡/g, "\\equiv"],                // 恒等于
+  [/±/g, "\\pm"],                   // 正负
+  [/∓/g, "\\mp"],                   // 负正
+  [/×/g, "\\times"],                // 乘
+  [/÷/g, "\\div"],                  // 除
+  [/·/g, "\\cdot"],                 // 点乘
+  [/∂/g, "\\partial"],              // 偏导
+  [/∇/g, "\\nabla"],                // 梯度
+  [/∈/g, "\\in"],                   // 属于
+  [/∉/g, "\\notin"],                // 不属于
+  [/⊂/g, "\\subset"],               // 真子集
+  [/⊃/g, "\\supset"],               // 真超集
+  [/⊆/g, "\\subseteq"],             // 子集
+  [/⊇/g, "\\supseteq"],             // 超集
+  [/∪/g, "\\cup"],                  // 并集
+  [/∩/g, "\\cap"],                  // 交集
+  [/∅/g, "\\emptyset"],             // 空集
+  [/∀/g, "\\forall"],               // 全称
+  [/∃/g, "\\exists"],               // 存在
+  [/⇒/g, "\\Rightarrow"],           // 推出
+  [/⇔/g, "\\Leftrightarrow"],       // 当且仅当
+  [/α/g, "\\alpha"],
+  [/β/g, "\\beta"],
+  [/γ/g, "\\gamma"],
+  [/δ/g, "\\delta"],
+  [/ε/g, "\\epsilon"],
+  [/θ/g, "\\theta"],
+  [/λ/g, "\\lambda"],
+  [/μ/g, "\\mu"],
+  [/π/g, "\\pi"],
+  [/σ/g, "\\sigma"],
+  [/ω/g, "\\omega"],
+  [/φ/g, "\\phi"],
+  [/ρ/g, "\\rho"],
+  [/τ/g, "\\tau"],
+  [/η/g, "\\eta"],
+  [/ζ/g, "\\zeta"],
+  [/ν/g, "\\nu"],
+  [/ξ/g, "\\xi"],
+  [/κ/g, "\\kappa"],
+  [/χ/g, "\\chi"],
+  [/ψ/g, "\\psi"],
+  [/Δ/g, "\\Delta"],
+  [/Σ/g, "\\Sigma"],
+  [/Ω/g, "\\Omega"],
+  [/Φ/g, "\\Phi"],
+  [/Γ/g, "\\Gamma"],
+  [/Θ/g, "\\Theta"],
+  [/Λ/g, "\\Lambda"],
+  // Unicode 上下标数字（V₀ V₁ 等）→ _{0} _{1}
+  [/₀/g, "_{0}"], [/₁/g, "_{1}"], [/₂/g, "_{2}"], [/₃/g, "_{3}"], [/₄/g, "_{4}"],
+  [/₅/g, "_{5}"], [/₆/g, "_{6}"], [/₇/g, "_{7}"], [/₈/g, "_{8}"], [/₉/g, "_{9}"],
+  // Unicode 上标数字（x² x³ 等）→ ^{2} ^{3}
+  [/²/g, "^{2}"], [/³/g, "^{3}"], [/¹/g, "^{1}"], [/⁰/g, "^{0}"],
+  [/⁴/g, "^{4}"], [/⁵/g, "^{5}"], [/⁶/g, "^{6}"], [/⁷/g, "^{7}"], [/⁸/g, "^{8}"], [/⁹/g, "^{9}"],
+];
+
+// 将 Unicode 数学符号替换为 LaTeX 命令
+// 仅替换 $...$ 数学块"内"的 Unicode 符号；块外的中文叙述中 → 等保持原样
+// 例外：√ 和 ∑ ∫ 等即使在外也该转（数学含义明确）
+function replaceUnicodeMath(text: string): string {
+  if (!text) return text;
+
+  // 保护代码块（```...```）—— 不应转换代码块内的符号
+  const codeBlocks: string[] = [];
+  text = text.replace(/```[a-zA-Z]*\n?([\s\S]*?)```/g, (full) => {
+    const i = codeBlocks.length;
+    codeBlocks.push(full);
+    return `\u0000CB${i}\u0000`;
+  });
+
+  // 分割为 $...$ 块和非数学文本
+  const parts = text.split(/(\$\$?[\s\S]+?\$\$?)/g);
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    // 跳过 $...$ 数学块（块内已应该是 LaTeX，但 AI 也可能在块内用 Unicode）
+    // 实际上块内块外都要处理 Unicode 数学符号
+    let p = part;
+    for (const [re, replacement] of UNICODE_MATH_MAP) {
+      p = p.replace(re, replacement);
+    }
+    parts[i] = p;
+  }
+  let result = parts.join("");
+
+  // 修复裸 LaTeX 命令（缺反斜杠）：lim_, sin_, cos_, log_, ln, max, min 等
+  // AI 常输出 $lim_{n}$ 而非 $\lim_{n}$
+  const nakedCmds = ["lim", "sin", "cos", "tan", "cot", "sec", "csc", "log", "ln", "exp", "max", "min", "sup", "inf", "arg"];
+  for (const cmd of nakedCmds) {
+    // lim_(  或 lim{  或 lim_  后跟 { 或 ( —— 缺反斜杠
+    const re = new RegExp(`(?<![\\\\a-zA-Z])${cmd}(_|\\{|\\()`, "g");
+    result = result.replace(re, `\\${cmd}$1`);
+  }
+
+  // 修复 \n 混入命令名：\nlim → \lim, \nsin → \sin（AI 输出 \n 被误当作转义）
+  // 典型："$f(x) = \nlim_{n \to \infty}" → "$f(x) = \lim_{n \to \infty}"
+  for (const cmd of nakedCmds) {
+    const re = new RegExp(`\\\\n${cmd}(?![a-zA-Z])`, "g");
+    result = result.replace(re, `\\${cmd}`);
+  }
+  // 通用：\n 后跟字母命令（\nfrac → \frac, \nsqrt → \sqrt 等）
+  result = result.replace(/\\n([a-zA-Z]{2,})/g, (full, cmd) => {
+    // 避免把 JSON 转义的 \n（换行）误转 —— 只转已知 LaTeX 命令
+    const known = ["frac", "sqrt", "sum", "int", "lim", "sin", "cos", "tan", "log", "ln",
+      "to", "infty", "cdot", "times", "pm", "mp", "div", "leq", "geq", "neq", "approx",
+      "equiv", "sim", "propto", "partial", "nabla", "forall", "exists", "in", "notin",
+      "subset", "supset", "cup", "cap", "emptyset", "alpha", "beta", "gamma", "delta",
+      "epsilon", "theta", "lambda", "mu", "pi", "sigma", "omega", "phi", "rho", "tau",
+      "Delta", "Sigma", "Omega", "Phi", "Gamma", "Theta", "Lambda", "ln", "exp", "max",
+      "min", "sup", "inf", "arg", "begin", "end", "left", "right", "vec", "hat", "bar",
+      "tilde", "dot", "ddot", "mathbf", "mathrm", "mathcal", "displaystyle", "textstyle",
+      "dfrac", "tfrac", "cfrac", "sqrt", "binom", "choose"];
+    if (known.includes(cmd)) return `\\${cmd}`;
+    return full;
+  });
+
+  // 修复 OCR 字面量 "o" 被当作 \to —— 典型 "lim_{n o \infty}" → "lim_{n \to \infty}"
+  // 这个问题源于 AI 输出 \to 时反斜杠丢失变成 "to"，再被 OCR 误识别为 "o"
+  result = result.replace(/(?<=\b\w)\s+o\s+\\(infty|infty\b)/g, " \\to \\$1");
+
+  // 还原代码块
+  for (let i = 0; i < codeBlocks.length; i++) {
+    result = result.replace(`\u0000CB${i}\u0000`, codeBlocks[i]);
+  }
+
+  return result;
+}
+
 export function sanitizeLatex(text: string) {
   if (!text) return text;
+
+  // 0. 先转换 Unicode 数学符号 → LaTeX 命令（新增）
+  text = replaceUnicodeMath(text);
 
   // 1. Strip $ inside ^{$...$} and _{$...$} — AI wrongly nests math blocks
   text = text.replace(/\^\{(\s*)\$([^$]+)\$(\s*)\}/g, "^{$1$2$3}");
