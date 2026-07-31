@@ -72,6 +72,15 @@ export default function ReviewPage() {
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
+  // 切题时：若 OCR 文本为空或过短（含图题目），自动展开图片显示，方便用户看图做题
+  // 必须放在所有早返回之前，否则违反 React Hooks 规则
+  const current = questions[currentIdx];
+  useEffect(() => {
+    if (!current) return;
+    const ocrLen = (current.ocr_text || "").trim().length;
+    setShowImage(ocrLen < 20 && !!current.image_path);
+  }, [currentIdx, current]);
+
   const handleResult = async (correct: boolean) => {
     const q = questions[currentIdx];
     await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question_id: q.id, correct }) });
@@ -129,14 +138,7 @@ export default function ReviewPage() {
     );
   }
 
-  const current = questions[currentIdx];
   const solutions = (() => { if (!current.ai_solutions) return []; try { return JSON.parse(current.ai_solutions); } catch { return []; } })();
-
-  // 切题时：若 OCR 文本为空或过短（含图题目），自动展开图片显示，方便用户看图做题
-  useEffect(() => {
-    const ocrLen = (current.ocr_text || "").trim().length;
-    setShowImage(ocrLen < 20 && !!current.image_path);
-  }, [currentIdx, current.ocr_text, current.image_path]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
