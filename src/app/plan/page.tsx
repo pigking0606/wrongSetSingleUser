@@ -610,6 +610,8 @@ export default function PlanPage() {
         let totalMin = 0, studyDays = 0;
         for (const [, v] of monthData) { totalMin += v.seconds; if (v.seconds > 0) studyDays++; }
         const totalHours = (totalMin / 3600).toFixed(1);
+        // 日均时长：只计算时间不为零的天数
+        const avgHours = studyDays > 0 ? (totalMin / 3600 / studyDays).toFixed(1) : "0.0";
         // 时长 → 背景色（热力图分级，单位：小时）
         // 0→灰，<3h→红，3-5h→橙，5-6h→黄，6-7h→蓝，7h+→嫩绿
         const heatColor = (sec: number) => {
@@ -691,6 +693,7 @@ export default function PlanPage() {
             {/* 月度汇总 */}
             <div style={{ display: "flex", justifyContent: "center", gap: "1rem", fontSize: ".75rem", color: "var(--text-muted)" }}>
               <span>学习 <b style={{ color: "var(--green-text)" }}>{totalHours}h</b></span>
+              <span>日均 <b style={{ color: "var(--green-text)" }}>{avgHours}h</b></span>
               <span>打卡 <b style={{ color: "var(--green-text)" }}>{studyDays}</b>/{daysInMonth}天</span>
             </div>
             {/* 星期标题 */}
