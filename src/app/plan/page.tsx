@@ -611,15 +611,15 @@ export default function PlanPage() {
         for (const [, v] of monthData) { totalMin += v.seconds; if (v.seconds > 0) studyDays++; }
         const totalHours = (totalMin / 3600).toFixed(1);
         // 时长 → 背景色（热力图分级，单位：小时）
-        // 0→灰色，<3h→红色，3-5h→橙色，5-6h→黄色，6-7h→蓝色，7h+→嫩绿色
+        // 0→灰，<3h→红，3-5h→橙，5-6h→黄，6-7h→蓝，7h+→嫩绿
         const heatColor = (sec: number) => {
           const h = sec / 3600;
           if (h === 0) return "var(--bg-hover)";
-          if (h < 3) return "rgba(231, 111, 81, 0.45)";   // 红色
-          if (h < 5) return "rgba(76, 175, 80, 0.55)";    // 橙色
-          if (h < 6) return "rgba(66, 153, 225, 0.65)";   // 黄色
-          if (h < 7) return "rgba(237, 194, 64, 0.75)";   // 蓝色
-          return "rgba(255, 140, 0, 0.85)";               // 嫩绿色
+          if (h < 3) return "rgba(231, 111, 81, 0.55)";   // 红
+          if (h < 5) return "rgba(255, 140, 0, 0.65)";    // 橙
+          if (h < 6) return "rgba(237, 194, 64, 0.75)";   // 黄
+          if (h < 7) return "rgba(66, 153, 225, 0.75)";   // 蓝
+          return "rgba(76, 175, 80, 0.85)";               // 嫩绿
         };
         // 格子中央显示的时长文本：x.xh 格式（0.1h 精度）
         const fmtHours = (sec: number) => {
@@ -705,18 +705,18 @@ export default function PlanPage() {
             </div>
             {/* 图例 */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem", fontSize: ".62rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
-              <span>0 灰</span>
+              <span>0</span>
               <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "var(--bg-hover)" }} />
-              <span>&lt;3h 红</span>
-              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(231,111,81,0.45)" }} />
-              <span>3-5h 橙</span>
-              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(76,175,80,0.55)" }} />
-              <span>5-6h 黄</span>
-              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(66,153,225,0.65)" }} />
-              <span>6-7h 蓝</span>
+              <span>&lt;3h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(231,111,81,0.55)" }} />
+              <span>3-5h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(255,140,0,0.65)" }} />
+              <span>5-6h</span>
               <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(237,194,64,0.75)" }} />
-              <span>7h+ 嫩绿</span>
-              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(255,140,0,0.85)" }} />
+              <span>6-7h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(66,153,225,0.75)" }} />
+              <span>7h+</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(76,175,80,0.85)" }} />
             </div>
           </div>
         );
