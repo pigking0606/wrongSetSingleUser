@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import {
   IconFlame, IconChart, IconTrending, IconPencil, IconSparkle,
@@ -55,6 +55,14 @@ export default function PlanPage() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<Map<string, { total: number; pctSum: number; timeSum: number; diffSum: number; pctDiffSum: number }>>(new Map());
+
+  // 月度学习时长总览（类似番茄todo热力图）
+  const [showMonthView, setShowMonthView] = useState(false);
+  const [monthDate, setMonthDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [monthData, setMonthData] = useState<Map<string, { seconds: number; taskCount: number; pct: number }>>(new Map());
 
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiReason, setAiReason] = useState("");
@@ -274,6 +282,37 @@ export default function PlanPage() {
     setHistoryData(map);
     setShowHistory(!showHistory);
   };
+
+  // 加载指定月份的每日学习时长数据（用于月度热力图）
+  const loadMonthData = useCallback(async (ym: string) => {
+    const [y, m] = ym.split("-").map(Number);
+    const from = `${y}-${String(m).padStart(2, "0")}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    try {
+      const data = await (await fetch(`/api/plan-tasks?from=${from}&to=${to}`)).json();
+      const map = new Map<string, { seconds: number; taskCount: number; pct: number; diffSum: number; pctDiffSum: number }>();
+      for (const t of (data.tasks || []) as PlanTask[]) {
+        const e = map.get(t.task_date) || { seconds: 0, taskCount: 0, pct: 0, diffSum: 0, pctDiffSum: 0 };
+        const diff = t.difficulty || 3;
+        e.seconds += t.time_spent || 0;
+        e.taskCount += 1;
+        e.diffSum += diff;
+        e.pctDiffSum += (t.completion_pct || 0) * diff;
+        map.set(t.task_date, e);
+      }
+      // 计算加权平均完成度
+      for (const [, v] of map) {
+        v.pct = v.diffSum > 0 ? Math.round(v.pctDiffSum / v.diffSum) : 0;
+      }
+      setMonthData(map);
+    } catch { /* ignore */ }
+  }, []);
+
+  // 切换月份时加载数据
+  useEffect(() => {
+    if (showMonthView) loadMonthData(monthDate);
+  }, [showMonthView, monthDate, loadMonthData]);
 
   // 完成度滑块：onChange 只更新前端显示，松开后延迟 0.4s 才提交
   // 提交时若前端值又变了（用户继续拖），返回后用最新值重发
@@ -555,6 +594,110 @@ export default function PlanPage() {
           <div style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>今日学习(分)</div>
         </div>
       </div>
+
+      {/* 月度学习时长总览按钮 + 热力图 */}
+      <button className="btn" onClick={() => setShowMonthView(!showMonthView)}
+        style={{ width: "100%", fontSize: ".85rem", display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem" }}>
+        <IconCalendar size={16} /> {showMonthView ? "收起月度总览" : "月度学习总览"}
+      </button>
+      {showMonthView && (() => {
+        const [my, mm] = monthDate.split("-").map(Number);
+        const firstDay = new Date(my, mm - 1, 1).getDay(); // 1号是星期几（0=日）
+        const daysInMonth = new Date(my, mm, 0).getDate();
+        const todayStr = today();
+        const thisMonth = monthDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+        // 月度统计
+        let totalMin = 0, studyDays = 0;
+        for (const [, v] of monthData) { totalMin += v.seconds; if (v.seconds > 0) studyDays++; }
+        const totalHours = (totalMin / 3600).toFixed(1);
+        // 时长 → 背景色（热力图分级）
+        const heatColor = (sec: number) => {
+          const min = sec / 60;
+          if (min === 0) return "var(--bg-hover)";
+          if (min < 30) return "rgba(76, 175, 80, 0.22)";
+          if (min < 60) return "rgba(76, 175, 80, 0.42)";
+          if (min < 120) return "rgba(76, 175, 80, 0.62)";
+          if (min < 180) return "rgba(76, 175, 80, 0.80)";
+          return "rgba(76, 175, 80, 0.95)";
+        };
+        const fmtMin = (sec: number) => {
+          const m = Math.floor(sec / 60);
+          if (m === 0) return "";
+          if (m >= 60) return `${Math.floor(m / 60)}h${m % 60 > 0 ? `${m % 60}m` : ""}`;
+          return `${m}m`;
+        };
+        const cells: ReactNode[] = [];
+        // 前置空格（1号前的星期对齐）
+        for (let i = 0; i < firstDay; i++) {
+          cells.push(<div key={`empty-${i}`} />);
+        }
+        // 当月每一天
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${my}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const data = monthData.get(dateStr);
+          const sec = data?.seconds || 0;
+          const isFuture = dateStr > todayStr;
+          const isToday = dateStr === todayStr;
+          cells.push(
+            <div key={dateStr}
+              onClick={() => { if (!isFuture) { setCurDate(dateStr); setShowMonthView(false); } }}
+              style={{
+                aspectRatio: "1", borderRadius: "6px", padding: ".2rem",
+                background: heatColor(sec),
+                cursor: isFuture ? "default" : "pointer",
+                border: isToday ? "2px solid var(--accent)" : "1px solid transparent",
+                display: "flex", flexDirection: "column", justifyContent: "space-between",
+                opacity: isFuture ? 0.3 : 1,
+                transition: "transform .1s",
+              }}
+              title={`${dateStr}${sec > 0 ? ` · ${fmtMin(sec)} · ${data?.taskCount || 0}项 · ${data?.pct || 0}%` : " · 无记录"}`}
+            >
+              <span style={{ fontSize: ".65rem", color: sec > 0 ? "var(--text)" : "var(--text-muted)", fontWeight: isToday ? 700 : 400 }}>{d}</span>
+              {sec > 0 && <span style={{ fontSize: ".55rem", color: "var(--text)", fontWeight: 600, lineHeight: 1 }}>{fmtMin(sec)}</span>}
+            </div>
+          );
+        }
+        return (
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
+            {/* 月份导航 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: ".75rem" }}>
+              <button className="btn" onClick={() => setMonthDate(my === 1 ? `${my - 1}-12` : `${my}-${String(mm - 1).padStart(2, "0")}`)}
+                style={{ padding: ".25rem .5rem", display: "flex" }}>
+                <IconChevronLeft size={16} />
+              </button>
+              <span style={{ fontWeight: 700, fontSize: ".95rem", minWidth: "7rem", textAlign: "center" }}>{my}年{mm}月</span>
+              <button className="btn" onClick={() => setMonthDate(mm === 12 ? `${my + 1}-01` : `${my}-${String(mm + 1).padStart(2, "0")}`)}
+                disabled={thisMonth}
+                style={{ padding: ".25rem .5rem", display: "flex", opacity: thisMonth ? 0.4 : 1 }}>
+                <IconChevronRight size={16} />
+              </button>
+            </div>
+            {/* 月度汇总 */}
+            <div style={{ display: "flex", justifyContent: "center", gap: "1rem", fontSize: ".75rem", color: "var(--text-muted)" }}>
+              <span>学习 <b style={{ color: "var(--green-text)" }}>{totalHours}h</b></span>
+              <span>打卡 <b style={{ color: "var(--green-text)" }}>{studyDays}</b>/{daysInMonth}天</span>
+            </div>
+            {/* 星期标题 */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px" }}>
+              {["日", "一", "二", "三", "四", "五", "六"].map(d => (
+                <div key={d} style={{ textAlign: "center", fontSize: ".65rem", color: "var(--text-muted)", padding: ".15rem 0" }}>{d}</div>
+              ))}
+            </div>
+            {/* 日期格子 */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px" }}>
+              {cells}
+            </div>
+            {/* 图例 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem", fontSize: ".65rem", color: "var(--text-muted)" }}>
+              <span>少</span>
+              {["var(--bg-hover)", "rgba(76,175,80,0.22)", "rgba(76,175,80,0.42)", "rgba(76,175,80,0.62)", "rgba(76,175,80,0.80)", "rgba(76,175,80,0.95)"].map((c, i) => (
+                <div key={i} style={{ width: "14px", height: "14px", borderRadius: "3px", background: c }} />
+              ))}
+              <span>多</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Yesterday incomplete notification */}
       {isToday && yesterdayIncomplete.length > 0 && (
