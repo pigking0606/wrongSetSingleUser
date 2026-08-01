@@ -610,21 +610,24 @@ export default function PlanPage() {
         let totalMin = 0, studyDays = 0;
         for (const [, v] of monthData) { totalMin += v.seconds; if (v.seconds > 0) studyDays++; }
         const totalHours = (totalMin / 3600).toFixed(1);
-        // 时长 → 背景色（热力图分级）
+        // 时长 → 背景色（热力图分级，单位：小时）
+        // 0→灰色，<3h→浅红，3-5h→绿，5-6h→蓝色，6-7h→黄色，7h+→橙色
         const heatColor = (sec: number) => {
-          const min = sec / 60;
-          if (min === 0) return "var(--bg-hover)";
-          if (min < 30) return "rgba(76, 175, 80, 0.22)";
-          if (min < 60) return "rgba(76, 175, 80, 0.42)";
-          if (min < 120) return "rgba(76, 175, 80, 0.62)";
-          if (min < 180) return "rgba(76, 175, 80, 0.80)";
-          return "rgba(76, 175, 80, 0.95)";
+          const h = sec / 3600;
+          if (h === 0) return "var(--bg-hover)";
+          if (h < 3) return "rgba(231, 111, 81, 0.45)";   // 浅红
+          if (h < 5) return "rgba(76, 175, 80, 0.55)";    // 绿
+          if (h < 6) return "rgba(66, 153, 225, 0.65)";   // 蓝色
+          if (h < 7) return "rgba(237, 194, 64, 0.75)";   // 黄色
+          return "rgba(255, 140, 0, 0.85)";               // 橙色
         };
-        const fmtMin = (sec: number) => {
-          const m = Math.floor(sec / 60);
-          if (m === 0) return "";
-          if (m >= 60) return `${Math.floor(m / 60)}h${m % 60 > 0 ? `${m % 60}m` : ""}`;
-          return `${m}m`;
+        // 格子中央显示的时长文本：x.xh 格式（0.1h 精度）
+        const fmtHours = (sec: number) => {
+          const h = sec / 3600;
+          if (h === 0) return "";
+          // 小于1小时用 m 显示更直观，1小时以上用 x.xh
+          if (h < 1) return `${Math.round(sec / 60)}m`;
+          return `${h.toFixed(1)}h`;
         };
         const cells: ReactNode[] = [];
         // 前置空格（1号前的星期对齐）
@@ -642,18 +645,31 @@ export default function PlanPage() {
             <div key={dateStr}
               onClick={() => { if (!isFuture) { setCurDate(dateStr); setShowMonthView(false); } }}
               style={{
-                aspectRatio: "1", borderRadius: "6px", padding: ".2rem",
+                aspectRatio: "1", borderRadius: "8px", padding: ".15rem",
                 background: heatColor(sec),
                 cursor: isFuture ? "default" : "pointer",
                 border: isToday ? "2px solid var(--accent)" : "1px solid transparent",
-                display: "flex", flexDirection: "column", justifyContent: "space-between",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 opacity: isFuture ? 0.3 : 1,
-                transition: "transform .1s",
+                transition: "transform .1s, box-shadow .1s",
+                position: "relative",
               }}
-              title={`${dateStr}${sec > 0 ? ` · ${fmtMin(sec)} · ${data?.taskCount || 0}项 · ${data?.pct || 0}%` : " · 无记录"}`}
+              title={`${dateStr}${sec > 0 ? ` · ${fmtHours(sec)} · ${data?.taskCount || 0}项 · ${data?.pct || 0}%` : " · 无记录"}`}
             >
-              <span style={{ fontSize: ".65rem", color: sec > 0 ? "var(--text)" : "var(--text-muted)", fontWeight: isToday ? 700 : 400 }}>{d}</span>
-              {sec > 0 && <span style={{ fontSize: ".55rem", color: "var(--text)", fontWeight: 600, lineHeight: 1 }}>{fmtMin(sec)}</span>}
+              <span style={{ fontSize: ".6rem", color: sec > 0 ? "var(--text-muted)" : "var(--text-muted)", fontWeight: isToday ? 700 : 400, lineHeight: 1, position: "absolute", top: ".2rem", left: ".3rem" }}>{d}</span>
+              {sec > 0 && (
+                <span style={{
+                  fontSize: ".78rem",
+                  color: "var(--text)",
+                  fontWeight: 700,
+                  lineHeight: 1.1,
+                  fontFamily: "'SF Pro Display', -apple-system, 'Segoe UI', system-ui, sans-serif",
+                  fontVariantNumeric: "tabular-nums",
+                  textShadow: "0 1px 2px rgba(255,255,255,0.3)",
+                }}>
+                  {fmtHours(sec)}
+                </span>
+              )}
             </div>
           );
         }
@@ -688,12 +704,19 @@ export default function PlanPage() {
               {cells}
             </div>
             {/* 图例 */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: ".4rem", fontSize: ".65rem", color: "var(--text-muted)" }}>
-              <span>少</span>
-              {["var(--bg-hover)", "rgba(76,175,80,0.22)", "rgba(76,175,80,0.42)", "rgba(76,175,80,0.62)", "rgba(76,175,80,0.80)", "rgba(76,175,80,0.95)"].map((c, i) => (
-                <div key={i} style={{ width: "14px", height: "14px", borderRadius: "3px", background: c }} />
-              ))}
-              <span>多</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem", fontSize: ".62rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+              <span>0</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "var(--bg-hover)" }} />
+              <span>&lt;3h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(231,111,81,0.45)" }} />
+              <span>3-5h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(76,175,80,0.55)" }} />
+              <span>5-6h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(66,153,225,0.65)" }} />
+              <span>6-7h</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(237,194,64,0.75)" }} />
+              <span>7h+</span>
+              <div style={{ width: "14px", height: "14px", borderRadius: "3px", background: "rgba(255,140,0,0.85)" }} />
             </div>
           </div>
         );
