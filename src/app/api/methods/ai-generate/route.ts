@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { queryOne, queryAll, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex } from "@/lib/ai";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 // POST /api/methods/ai-generate
 // 改为后台 fire-and-forget 模式：
@@ -207,6 +208,7 @@ ${solText}`;
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("methods/ai-generate", model, rawText);
 
     // 提取 JSON
     let parsed: any;

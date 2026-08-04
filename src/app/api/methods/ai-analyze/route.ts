@@ -5,6 +5,7 @@ import { queryOne } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { validateImageFile } from "@/lib/upload-utils";
 import { autoWrapMathDelimiters, sanitizeLatex } from "@/lib/ai";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 // POST /api/methods/ai-analyze
 // Input: FormData with one or more images (image_0, image_1, ... up to image_9)
@@ -149,6 +150,7 @@ async function analyzeMethodImages(
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("methods/ai-analyze", model, rawText);
     const cleanText = rawText.includes("{") ? rawText.slice(rawText.indexOf("{")) : rawText;
 
     let parsed: { title?: string; content?: string };

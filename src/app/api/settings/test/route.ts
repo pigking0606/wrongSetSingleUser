@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 // POST /api/settings/test
 // 用前端表单当前填写的 key/url/model 发一个极简测试请求，验证配置是否可用
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
     const content: string = msg0.content || "";
     const reasoning: string = msg0.reasoning_content || "";
     const finishReason: string = data.choices?.[0]?.finish_reason || "";
+    logAiResp(`settings/test[${type}]`, model.trim(), content || `(空 content, reasoning_len=${reasoning.length}, finish=${finishReason})`);
 
     // 有些 provider 报错时 HTTP 200 但 body 里带 error 字段
     if (data.error) {

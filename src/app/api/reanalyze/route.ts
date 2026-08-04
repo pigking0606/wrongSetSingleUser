@@ -5,6 +5,7 @@ import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
 import { enqueue } from "@/lib/analysis-queue";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
@@ -183,6 +184,7 @@ async function processReanalyze(
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp(`Reanalyze[q${questionId}/${answerOnly ? "answer" : "full"}]`, rModel, rawText);
     console.log(`[Reanalyze] question=${questionId} 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
     // AI 返回空响应时直接报错，不用兜底值假装成功
     if (!rawText || rawText.trim().length === 0) {

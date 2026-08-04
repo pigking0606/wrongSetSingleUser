@@ -98,6 +98,7 @@ export function autoWrapMathDelimiters(text: string) {
 // Get settings from DB (with env fallback), auto-decrypt encrypted values
 import { queryOne } from "@/lib/db";
 import { decrypt } from "@/lib/crypto-utils";
+import { logAiResp } from "@/lib/ai-resp-log";
 async function loadSetting(key: string, envFallback = "") {
   try {
     const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE `key`=?", [key]);
@@ -169,6 +170,7 @@ async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Prom
     if (!resp.ok) return texts;
     const data = await resp.json();
     const raw: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("dedupWithAI", dedupModel, raw);
     // Parse the response: extract text between 【field】 markers
     const result = { ...texts };
     for (const key of Object.keys(texts)) {
@@ -279,6 +281,7 @@ ${solutionsText || "(无解法)"}
     }
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("reconcileAnswerWithAI", model, rawText);
     const jsonStr = stripThinkingBeforeJson(rawText);
     const parsed = parseAiJson(jsonStr) as AiAnalysisResult & { correctedAnswer?: string; reason?: string; consistent?: boolean };
 
@@ -703,6 +706,7 @@ export async function fixLatexWithAI(
     if (!resp.ok) return texts;
     const data = await resp.json();
     const raw: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("fixLatexWithAI", ltxModel, raw);
     try {
       // 关键：AI 返回的 JSON 中 \frac \tan \theta 等可能只有单反斜杠，
       // 直接 JSON.parse 会把 \f 当 form feed、\t 当 tab，破坏 LaTeX 命令。
@@ -1215,6 +1219,7 @@ async function analyzeOcrAndClassify(
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("analyzeOcrAndClassify", visionModel, rawText);
     console.log(`[analyzeOcrAndClassify] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
     // AI 返回空响应时直接报错，不用空值假装成功
     if (!rawText || rawText.trim().length === 0) {
@@ -1340,6 +1345,7 @@ async function analyzeAnswerAndExplain(
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    logAiResp("analyzeAnswerAndExplain", model, rawText);
     console.log(`[analyzeAnswerAndExplain] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
     if (!rawText || rawText.trim().length === 0) {
       console.error("[analyzeAnswerAndExplain] AI 返回空响应，完整响应体:", JSON.stringify(data).slice(0, 500));

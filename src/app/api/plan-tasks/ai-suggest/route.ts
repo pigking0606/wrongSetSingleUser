@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { queryAll, queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto-utils";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 async function loadSetting(key: string, envFallback = "") {
   try {
@@ -285,6 +286,7 @@ JSON格式：
   const data = await resp.json();
   const rawFull = (data.choices?.[0]?.message?.content || "")
     .replace(/^```[\s\S]*?\n/, "").replace(/\n```\s*$/, "").trim();
+  logAiResp("plan-tasks/ai-suggest", model, rawFull);
 
   // JSON 提取（括号匹配，与原逻辑一致）
   let jsonStr = "";

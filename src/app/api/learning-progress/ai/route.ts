@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { queryAll, queryOne } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { decrypt } from "@/lib/crypto-utils";
+import { logAiResp } from "@/lib/ai-resp-log";
 
 async function loadSetting(key: string, envFallback = "") {
   try {
@@ -101,6 +102,7 @@ ${content || "暂无"}
     if (!resp.ok) throw new Error(`AI error: ${resp.status}`);
     const data = await resp.json();
     const result = (data.choices?.[0]?.message?.content || content).trim();
+    logAiResp("learning-progress/ai", model, result);
     return NextResponse.json({ content: result });
   } catch (err) {
     console.error("Learning progress AI error:", err);
