@@ -1315,7 +1315,7 @@ async function analyzeAnswerAndExplain(
 
     const body: any = {
       model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       temperature: 0,
       messages: [
         { role: "system", content: ANSWER_EXPLAIN_PROMPT },
@@ -1345,8 +1345,15 @@ async function analyzeAnswerAndExplain(
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
-    logAiResp("analyzeAnswerAndExplain", model, rawText);
-    console.log(`[analyzeAnswerAndExplain] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
+    const finishReason: string = data.choices?.[0]?.finish_reason || "";
+    logAiResp("analyzeAnswerAndExplain", model, rawText, `finish_reason=${finishReason}, usage=${JSON.stringify(data.usage)}`);
+    console.log(`[analyzeAnswerAndExplain] 响应长度=${rawText.length} finish=${finishReason} 前200字=${rawText.slice(0, 200)}`);
+    if (finishReason === "length") {
+      // 思考型模型 reasoning_content 占用 max_tokens 配额，导致 content 被截断
+      // 截断的 JSON 无法解析，应明确报错触发重试，而不是保存残缺数据
+      console.error(`[analyzeAnswerAndExplain] 输出被 max_tokens 截断(finish_reason=length)，请增大 max_tokens 或换非思考型模型`);
+      throw new AiApiError("AI 输出被 max_tokens 截断（思考型模型 reasoning 占用配额），请重试或换模型", 503);
+    }
     if (!rawText || rawText.trim().length === 0) {
       console.error("[analyzeAnswerAndExplain] AI 返回空响应，完整响应体:", JSON.stringify(data).slice(0, 500));
       throw new AiApiError("AI 返回空响应（答案推导步骤，可能被限流或超时）", 503);

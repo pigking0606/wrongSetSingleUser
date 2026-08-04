@@ -185,7 +185,7 @@ ${solText}`;
 
     const body: any = {
       model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       temperature: 0,
       messages: [
         { role: "system", content: GENERATE_METHOD_PROMPT },

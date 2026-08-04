@@ -156,7 +156,7 @@ async function processReanalyze(
     const rApiKey = rModel.startsWith("deepseek")
       ? (await loadSetting("text_key", "DEEPSEEK_API_KEY") || apiKey)
       : (await loadSetting("vision_key", "DASHSCOPE_API_KEY") || apiKey);
-    const rBody: any = { model: rModel, max_tokens: 8192, temperature: 0, messages: [systemMsg, userMsg] };
+    const rBody: any = { model: rModel, max_tokens: 16384, temperature: 0, messages: [systemMsg, userMsg] };
     if (!rModel.startsWith("deepseek")) rBody.response_format = { type: "json_object" };
 
     const reanalyzeUrl = await getReanalyzeUrl(rModel, answerOnly);
