@@ -107,6 +107,14 @@ async function loadSetting(key: string, envFallback = "") {
   return process.env[envFallback] || "";
 }
 
+// 读取布尔型设置：值为 "1"/"true"/"yes" 视为 true，其余为 false
+// 部分模型（如 GLM-4.6V）不支持 system role，需将 systemPrompt 合并到 user message
+async function loadBoolSetting(key: string, defaultValue = false) {
+  const v = (await loadSetting(key)).trim().toLowerCase();
+  if (!v) return defaultValue;
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 // Pick API endpoint based on model or DB setting
 async function getApiUrl(model: string, settingKey: string) {
   const custom = await loadSetting(settingKey);
@@ -1251,10 +1259,37 @@ async function analyzeOcrAndClassify(
 
   const visionModel = await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus";
   const visionUrl = await getVisionUrl();
-  console.log(`[analyzeOcrAndClassify] 请求 model=${visionModel} url=${visionUrl} imageBytes=${Math.round(imageBase64.length * 0.75)}`);
+  // 部分视觉模型（如 GLM-4.6V）不支持 system role，会忽略 system message 导致 prompt 丢失
+  // 默认允许 system role；用户可在设置中关闭，此时 systemPrompt 会合并到 user message
+  const allowSystem = await loadBoolSetting("vision_allow_system", true);
+  console.log(`[analyzeOcrAndClassify] 请求 model=${visionModel} url=${visionUrl} imageBytes=${Math.round(imageBase64.length * 0.75)} systemPrompt长度=${systemPrompt.length} allowSystem=${allowSystem}`);
+  logAiResp("analyzeOcrAndClassify[REQ]", visionModel, systemPrompt.slice(0, 500), `完整 systemPrompt 长度=${systemPrompt.length} 字符 | allowSystem=${allowSystem}`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 300000);
+
+  // 构造 messages：allowSystem=true 时用标准 system+user 结构；
+  // allowSystem=false 时把 systemPrompt 合并到 user message 的 text 部分
+  const messages = allowSystem
+    ? [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            { type: "text", text: "请识别题目文字并归类，返回纯 JSON。" },
+          ],
+        },
+      ]
+    : [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            { type: "text", text: `${systemPrompt}\n\n请识别题目文字并归类，返回纯 JSON。` },
+          ],
+        },
+      ];
 
   try {
     const resp = await fetch(
@@ -1270,16 +1305,7 @@ async function analyzeOcrAndClassify(
           max_tokens: 16384,
           response_format: { type: "json_object" },
           temperature: 0,
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-                { type: "text", text: "请识别题目文字并归类，返回纯 JSON。" },
-              ],
-            },
-          ],
+          messages,
         }),
         signal: controller.signal,
       }

@@ -12,6 +12,9 @@ export default function SettingsPage() {
   const [visionKey, setVisionKey] = useState("");
   const [visionModel, setVisionModel] = useState("");
   const [visionUrl, setVisionUrl] = useState("");
+  // 是否允许 system role：部分视觉模型（如 GLM-4.6V）不支持 system message，
+  // 关闭后 systemPrompt 会合并到 user message，确保 prompt 完整传递
+  const [visionAllowSystem, setVisionAllowSystem] = useState(true);
   const [textKey, setTextKey] = useState("");
   const [textModel, setTextModel] = useState("");
   const [textUrl, setTextUrl] = useState("");
@@ -29,6 +32,7 @@ export default function SettingsPage() {
       setVisionKey(d.visionKey || "");
       setVisionModel(d.visionModel || "qwen-vl-plus");
       setVisionUrl(d.visionUrl || "");
+      setVisionAllowSystem(d.visionAllowSystem !== false);
       setTextKey(d.textKey || "");
       setTextModel(d.textModel || "deepseek-chat");
       setTextUrl(d.textUrl || "");
@@ -43,6 +47,7 @@ export default function SettingsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         visionKey: visionKey.trim(), visionModel: visionModel.trim(), visionUrl: visionUrl.trim(),
+        visionAllowSystem,
         textKey: textKey.trim(), textModel: textModel.trim(), textUrl: textUrl.trim(),
       }),
     });
@@ -103,6 +108,15 @@ export default function SettingsPage() {
                 placeholder="qwen-vl-plus" style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
           </div>
+          {/* 是否允许 system role：GLM-4.6V 等模型不支持 system message，关闭后 prompt 合并到 user message */}
+          <label style={{ fontSize: ".8rem", display: "flex", alignItems: "center", gap: ".4rem", cursor: authed ? "pointer" : "default", color: "var(--text-muted)" }}>
+            <input type="checkbox" checked={visionAllowSystem} disabled={!authed}
+              onChange={e => setVisionAllowSystem(e.target.checked)} />
+            允许 system role
+            <span style={{ fontSize: ".7rem" }}>
+              （不支持的模型如 GLM-4.6V 请关闭，否则 prompt 会被忽略）
+            </span>
+          </label>
           {authed && <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
             <button className="btn" onClick={() => testConn("vision")} disabled={!!testing.vision}
               style={{ fontSize: ".8rem", padding: ".35rem .8rem" }}>
