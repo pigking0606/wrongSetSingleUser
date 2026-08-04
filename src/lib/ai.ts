@@ -459,12 +459,86 @@ function replaceUnicodeMath(text: string): string {
     result = result.replace(re, replacement);
   }
 
+  // 矩阵/行列式 Unicode 括号成对转换
+  // AI OCR 经常输出 ⎛⎝1 0 1; 2 a 0; 1 1 -1⎞⎠ 这种 Unicode 矩阵括号
+  // 转成标准 LaTeX \begin{pmatrix}...\end{pmatrix}
+  // 括号类型：
+  //   ⎛⎝...⎞⎠ / (... ) → pmatrix
+  //   ⎡⎣...⎤⎦ / [...] → bmatrix
+  //   ⎧⎩...⎫⎭ / {...} → Bmatrix
+  //   ⎢⎥...⎥⎥ (单竖线) → vmatrix（行列式）
+  //   ‖...‖ → Vmatrix（范数）
+  // 分隔符：行间用 ; 或 ;; 或换行，列间用空格或 &
+  result = convertUnicodeMatrixBrackets(result);
+
   // 还原代码块
   for (let i = 0; i < codeBlocks.length; i++) {
     result = result.replace(`\u0000CB${i}\u0000`, codeBlocks[i]);
   }
 
   return result;
+}
+
+// 将 Unicode 矩阵括号转换为 LaTeX \begin{env}...\end{env}
+// 支持的括号对（可成对出现，也可单个）：
+//   ⎛ U+239B  ⎞ U+239E  ⎝ U+239D  ⎠ U+239A  → pmatrix
+//   ⎡ U+23A1  ⎤ U+23A4  ⎢ U+23A2  ⎥ U+23A5  ⎣ U+23A3  ⎦ U+23A6 → bmatrix
+//   ⎧ U+23A7  ⎫ U+23AD  ⎨ U+23A8  ⎬ U+23AC  ⎩ U+23A9  ⎭ U+23AB → Bmatrix
+//   | ... | (ASCII 单竖线) → vmatrix（仅当内部含 ; 或 ;; 或 & 时识别为矩阵）
+function convertUnicodeMatrixBrackets(text: string): string {
+  if (!text) return text;
+
+  // 成对括号：⎛...⎞ + ⎝...⎠ 或合并 ⎛⎝...⎞⎠
+  // 用 [sS] 非贪婪匹配括号内内容
+  const pairs: Array<[RegExp, string]> = [
+    // pmatrix: ⎛⎝ ... ⎞⎠ 或 ⎛ ... ⎞ （允许成对或单层）
+    [/⎛\s*⎝([\s\S]*?)⎞\s*⎠/g, "\\begin{pmatrix}$1\\end{pmatrix}"],
+    [/⎛([\s\S]*?)⎞/g, "\\begin{pmatrix}$1\\end{pmatrix}"],
+    [/⎝([\s\S]*?)⎠/g, "\\begin{pmatrix}$1\\end{pmatrix}"],
+    // bmatrix: ⎡⎣ ... ⎤⎦
+    [/⎡\s*⎣([\s\S]*?)⎤\s*⎦/g, "\\begin{bmatrix}$1\\end{bmatrix}"],
+    [/⎡([\s\S]*?)⎤/g, "\\begin{bmatrix}$1\\end{bmatrix}"],
+    [/⎣([\s\S]*?)⎦/g, "\\begin{bmatrix}$1\\end{bmatrix}"],
+    // Bmatrix: ⎧⎩ ... ⎫⎭
+    [/⎧\s*⎩([\s\S]*?)⎫\s*⎭/g, "\\begin{Bmatrix}$1\\end{Bmatrix}"],
+    [/⎧([\s\S]*?)⎫/g, "\\begin{Bmatrix}$1\\end{Bmatrix}"],
+    [/⎩([\s\S]*?)⎭/g, "\\begin{Bmatrix}$1\\end{Bmatrix}"],
+  ];
+  for (const [re, replacement] of pairs) {
+    text = text.replace(re, replacement);
+  }
+
+  // 规范化矩阵内容分隔符：
+  //   行分隔：; 或 ;; 或换行 → \\
+  //   列分隔：单空格或逗号 → &（矩阵元素必须用 & 分隔，每行内处理）
+  text = text.replace(/(\\begin\{(?:p|b|B|v|V)matrix\})([\s\S]*?)(\\end\{(?:p|b|B|v|V)matrix\})/g,
+    (full, begin, body, end) => {
+      let b = body;
+      // 行分隔：;; ; 换行（含多个换行）统一为 " \\ "
+      b = b.replace(/\s*;;\s*/g, " \\\\ ");
+      b = b.replace(/\s*;\s*/g, " \\\\ ");
+      b = b.replace(/\s*\n\s*/g, " \\\\ ");
+      // 按 \\ 切分每一行，每行内独立处理列分隔
+      const rows = b.split(/\s*\\\\\s*/).filter(r => r.trim().length > 0);
+      const normalizedRows = rows.map(row => {
+        let r = row.trim();
+        // 若行内已有 &，保留不动
+        if (r.includes("&")) return r;
+        // 逗号转 &
+        r = r.replace(/,\s*/g, " & ");
+        // 单空格（两个非空 token 之间）转 &，但避免破坏 $...$ 内部的空格
+        // 简化处理：把两个非空白字符之间的单空格转成 &
+        r = r.replace(/(\S)\s+(?=\S)/g, "$1 & ");
+        // 合并多余空格
+        r = r.replace(/\s+/g, " ").trim();
+        return r;
+      });
+      b = normalizedRows.join(" \\\\ ");
+      return begin + " " + b + " " + end;
+    }
+  );
+
+  return text;
 }
 
 export function sanitizeLatex(text: string) {
