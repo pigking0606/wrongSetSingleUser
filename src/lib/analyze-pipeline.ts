@@ -26,7 +26,7 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
 
   const imgPath = join(process.cwd(), "public", q.image_path);
   if (!existsSync(imgPath)) {
-    await runAndSave("UPDATE questions SET status='error', ocr_text='图片文件丢失' WHERE id=?", [questionId]);
+    await runAndSave("UPDATE questions SET status='error', error_reason='图片文件丢失' WHERE id=?", [questionId]);
     return null;
   }
 
@@ -50,10 +50,12 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     let result: AiAnalysisResult;
     try {
       // 新版两步拆分：视觉模型做 OCR+分类 → 文本模型做答案+解析
+      console.log(`[performAnalysis] question=${questionId} 开始分析 imageBytes=${imgBuffer.length} bank=${bankName || "(无)"}`);
       result = await analyzeImageTwoStep(base64, mimeType, chapterTree, q.user_answer || undefined, bankName || undefined);
+      console.log(`[performAnalysis] question=${questionId} 分析完成 ocrText长度=${(result.ocrText || "").length} answer=${result.correctAnswer} error_reason=${result.error_reason || "(无)"}`);
     } catch (err) {
       // 兜底：两步中任意一步失败，都进入错误流程，记录错误原因
-      console.error("[performAnalysis] analyzeImageTwoStep failed for question", questionId, err);
+      console.error(`[performAnalysis] question=${questionId} analyzeImageTwoStep failed:`, err instanceof Error ? err.message : err);
       throw err;
     }
 
@@ -99,10 +101,9 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
 
     return cls;
   } catch (err) {
-    console.error("performAnalysis error for question", questionId, err);
+    console.error(`[performAnalysis] question=${questionId} error:`, err instanceof Error ? err.message : err);
     const errMsg = err instanceof Error ? err.message : "AI 分析失败";
-    runAndSave("UPDATE questions SET status='error', ocr_text=? WHERE id=?", [errMsg.slice(0, 200), questionId])
-      .catch(e => console.error("Failed to save error status for question", questionId, e));
+    await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
     return null;
   }
 }

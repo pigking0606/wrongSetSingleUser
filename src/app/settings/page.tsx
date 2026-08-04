@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { IconEye, IconSparkle, IconCheck } from "@/lib/icons";
+import { IconEye, IconSparkle, IconCheck, IconRefresh, IconX } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -19,6 +19,9 @@ export default function SettingsPage() {
   const [newBankName, setNewBankName] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  // 测试连接状态：每个模型独立。result 为 null=未测，{ok,message,error,detail,elapsed}=已测
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [testResult, setTestResult] = useState<Record<string, null | { ok: boolean; message?: string; error?: string; detail?: string; elapsed?: number }>>({});
 
   useEffect(() => {
     fetch("/api/chapters?banks=1").then(r=>r.json()).then(d=>{if(d.banks)setBanks(d.banks)}).catch(()=>{});
@@ -45,6 +48,31 @@ export default function SettingsPage() {
     });
     if (resp.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
     else modal.alert("保存失败", "保存设置失败，请重试");
+  };
+
+  // 测试连接：用当前表单填写的值（不读数据库），验证 key/url/model 是否可用
+  const testConn = async (kind: "vision" | "text") => {
+    const key = (kind === "vision" ? visionKey : textKey).trim();
+    const url = (kind === "vision" ? visionUrl : textUrl).trim();
+    const model = (kind === "vision" ? visionModel : textModel).trim();
+    if (!key) { modal.alert("无法测试", "请先填写 API Key"); return; }
+    if (!model) { modal.alert("无法测试", "请先填写模型名"); return; }
+
+    setTesting(s => ({ ...s, [kind]: true }));
+    setTestResult(s => ({ ...s, [kind]: null }));
+    try {
+      const r = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: kind, key, url, model }),
+      });
+      const d = await r.json();
+      setTestResult(s => ({ ...s, [kind]: d }));
+    } catch (err) {
+      setTestResult(s => ({ ...s, [kind]: { ok: false, error: err instanceof Error ? err.message : String(err) } }));
+    } finally {
+      setTesting(s => ({ ...s, [kind]: false }));
+    }
   };
 
   if (loading) return <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "3rem 0" }}>加载中...</p>;
@@ -75,6 +103,32 @@ export default function SettingsPage() {
                 placeholder="qwen-vl-plus" style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
           </div>
+          {authed && <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
+            <button className="btn" onClick={() => testConn("vision")} disabled={!!testing.vision}
+              style={{ fontSize: ".8rem", padding: ".35rem .8rem" }}>
+              {testing.vision
+                ? <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconRefresh size={13} /> 测试中...</span>
+                : "测试连接"}
+            </button>
+            {testResult.vision && (
+              <span style={{ fontSize: ".75rem", display: "flex", alignItems: "center", gap: ".25rem",
+                color: testResult.vision.ok ? "var(--green-text)" : "var(--red-text)" }}>
+                {testResult.vision.ok ? <IconCheck size={13} /> : <IconX size={13} />}
+                <span>
+                  {testResult.vision.ok
+                    ? testResult.vision.message
+                    : testResult.vision.error}
+                  {typeof testResult.vision.elapsed === "number" && ` · ${testResult.vision.elapsed}ms`}
+                </span>
+              </span>
+            )}
+          </div>}
+          {testResult.vision && !testResult.vision.ok && testResult.vision.detail && (
+            <pre style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+              background: "var(--bg-hover)", padding: ".4rem .5rem", borderRadius: ".25rem", maxHeight: "8rem", overflow: "auto" }}>
+              {testResult.vision.detail}
+            </pre>
+          )}
         </div>
       </div>
 
@@ -100,6 +154,32 @@ export default function SettingsPage() {
                 placeholder="deepseek-chat" style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
           </div>
+          {authed && <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
+            <button className="btn" onClick={() => testConn("text")} disabled={!!testing.text}
+              style={{ fontSize: ".8rem", padding: ".35rem .8rem" }}>
+              {testing.text
+                ? <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconRefresh size={13} /> 测试中...</span>
+                : "测试连接"}
+            </button>
+            {testResult.text && (
+              <span style={{ fontSize: ".75rem", display: "flex", alignItems: "center", gap: ".25rem",
+                color: testResult.text.ok ? "var(--green-text)" : "var(--red-text)" }}>
+                {testResult.text.ok ? <IconCheck size={13} /> : <IconX size={13} />}
+                <span>
+                  {testResult.text.ok
+                    ? testResult.text.message
+                    : testResult.text.error}
+                  {typeof testResult.text.elapsed === "number" && ` · ${testResult.text.elapsed}ms`}
+                </span>
+              </span>
+            )}
+          </div>}
+          {testResult.text && !testResult.text.ok && testResult.text.detail && (
+            <pre style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+              background: "var(--bg-hover)", padding: ".4rem .5rem", borderRadius: ".25rem", maxHeight: "8rem", overflow: "auto" }}>
+              {testResult.text.detail}
+            </pre>
+          )}
         </div>
       </div>
 

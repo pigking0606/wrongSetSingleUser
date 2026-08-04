@@ -135,16 +135,16 @@ async function processReanalyze(
           if (ocrText && ocrText.length > 5) {
             userMsg = { role: "user" as const, content: `请重新分析这道错题：\n\n${ocrText}` };
           } else {
-            console.error("Reanalyze: no image file and no ocr text for question", questionId);
-            runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", ["图片文件丢失且无OCR文本", questionId]);
+            console.error(`[Reanalyze] question=${questionId} 图片文件丢失且无OCR文本`);
+            await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", ["图片文件丢失且无OCR文本", questionId]);
             return;
           }
         }
       } else if (ocrText && ocrText.length > 5) {
         userMsg = { role: "user" as const, content: `请重新分析这道错题：\n\n${ocrText}` };
       } else {
-        console.error("Reanalyze: no image and no ocr text for question", questionId);
-        runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", ["无图片路径且无OCR文本", questionId]);
+        console.error(`[Reanalyze] question=${questionId} 无图片路径且无OCR文本`);
+        await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", ["无图片路径且无OCR文本", questionId]);
         return;
       }
     }
@@ -158,12 +158,15 @@ async function processReanalyze(
     const rBody: any = { model: rModel, max_tokens: 8192, temperature: 0, messages: [systemMsg, userMsg] };
     if (!rModel.startsWith("deepseek")) rBody.response_format = { type: "json_object" };
 
+    const reanalyzeUrl = await getReanalyzeUrl(rModel, answerOnly);
+    console.log(`[Reanalyze] question=${questionId} mode=${answerOnly ? "answer" : "full"} model=${rModel} url=${reanalyzeUrl}`);
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 180000);
+    const timeout = setTimeout(() => controller.abort(), 300000);
 
     let resp: any;
     try {
-      resp = await fetch(await getReanalyzeUrl(rModel, answerOnly), {
+      resp = await fetch(reanalyzeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${rApiKey}` },
         body: JSON.stringify(rBody),
@@ -172,10 +175,20 @@ async function processReanalyze(
     } finally {
       clearTimeout(timeout);
     }
-    if (!resp.ok) throw new Error(`AI error: ${resp.status}`);
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => "");
+      console.error(`[Reanalyze] question=${questionId} API error status=${resp.status} body=${errBody.slice(0, 500)}`);
+      throw new Error(`AI error: ${resp.status}`);
+    }
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    console.log(`[Reanalyze] question=${questionId} 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
+    // AI 返回空响应时直接报错，不用兜底值假装成功
+    if (!rawText || rawText.trim().length === 0) {
+      console.error(`[Reanalyze] question=${questionId} AI 返回空响应，完整响应体:`, JSON.stringify(data).slice(0, 500));
+      throw new Error("AI 返回空响应（可能被限流或超时）");
+    }
     let result: any;
     // Multi-strategy JSON extraction
     const clean = rawText
@@ -190,18 +203,16 @@ async function processReanalyze(
         if (s !== -1 && e !== -1) result = JSON.parse(clean.slice(s, e + 1));
         else throw new Error("no braces");
       } catch {
-        // Last resort: build a minimal result from raw text
-        console.warn(`Reanalyze: JSON parse failed for question ${questionId}, raw: ${rawText.slice(0, 200)}`);
-        result = {
-          ocrText: ocrText || rawText.slice(0, 500),
-          questionType: "single_choice",
-          correctAnswer: "",
-          explanation: rawText.slice(0, 500),
-          solutions: [],
-          confidence: 0.5,
-        };
+        // JSON 解析失败：保存原始响应到 ai_raw_response 供排查，标记 error
+        console.warn(`[Reanalyze] question=${questionId} JSON parse failed, raw(500字)=${rawText.slice(0, 500)}`);
+        await runAndSave(
+          `UPDATE questions SET status='error', error_reason='AI响应JSON解析失败', ai_raw_response=? WHERE id=?`,
+          [rawText.slice(0, 5000), questionId]
+        );
+        return;
       }
     }
+    console.log(`[Reanalyze] question=${questionId} JSON 解析成功 answer=${result.correctAnswer} solutions=${result.solutions?.length || 0}`);
 
     // Layer 1: basic sanitize — apply to result in-place
     try {
@@ -307,9 +318,9 @@ async function processReanalyze(
 
     console.log(`Reanalyze OK: question ${questionId} mode=${answerOnly ? "answer" : "full"}`);
   } catch (err) {
-    console.error("Reanalyze background error:", err);
+    console.error(`[Reanalyze] question=${questionId} background error:`, err instanceof Error ? err.message : err);
     const errMsg = err instanceof Error ? err.message : String(err);
-    runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
+    await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
   }
 }
 
@@ -330,14 +341,15 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: "API key 未配置" }, { status: 500 });
 
   // Set status to pending, clear old error_reason
-  runAndSave("UPDATE questions SET status='pending', error_reason=NULL WHERE id=?", [q.id]);
+  await runAndSave("UPDATE questions SET status='pending', error_reason=NULL WHERE id=?", [q.id]);
+  console.log(`[Reanalyze] question=${q.id} 入队 mode=${isAnswerOnly ? "answer" : "full"} reason=${reason || "(无)"}`);
 
   // 重解析任务进入队列：最多并发 2 个，每题完成后等待 1s 再继续
   enqueue(async () => {
     await processReanalyze(q.id, q.ocr_text, q.image_path, apiKey, isAnswerOnly, reason);
-  }).catch(err => {
-    console.error("Reanalyze failed:", err);
-    runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [String(err).slice(0, 200), q.id]);
+  }).catch(async err => {
+    console.error(`[Reanalyze] question=${q.id} queue error:`, err instanceof Error ? err.message : err);
+    await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [String(err).slice(0, 200), q.id]);
   });
 
   return NextResponse.json({ ok: true });

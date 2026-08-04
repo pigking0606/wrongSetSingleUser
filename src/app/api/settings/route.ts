@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
   for (const [k, v] of pairs) {
     // Encrypt API key fields before storing; model/URL stay plain
     const stored = KEY_FIELDS.has(k) ? encrypt(v || "") : (v || "");
-    runAndSave(
+    // 必须 await：未 await 的 runAndSave 在 Next.js 生产环境中会被丢弃，
+    // 导致用户更新的 key 没有写入数据库，AI 请求仍读取旧 key（已失效），
+    // 两个 API 网关都返回 401 HTML 错误页 → OCR 报错、文本答案为空
+    await runAndSave(
       "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
       [k, stored]
     );

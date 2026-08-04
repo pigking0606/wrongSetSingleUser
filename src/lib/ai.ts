@@ -791,7 +791,7 @@ async function realAnalyze(
   const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
+  const timeout = setTimeout(() => controller.abort(), 300000);
 
   try {
     const resp = await fetch(
@@ -1171,12 +1171,16 @@ async function analyzeOcrAndClassify(
   const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
   if (!apiKey) throw new AiApiError("vision_key 未配置，请在设置页面填写", 500);
 
+  const visionModel = await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus";
+  const visionUrl = await getVisionUrl();
+  console.log(`[analyzeOcrAndClassify] 请求 model=${visionModel} url=${visionUrl} imageBytes=${Math.round(imageBase64.length * 0.75)}`);
+
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
+  const timeout = setTimeout(() => controller.abort(), 300000);
 
   try {
     const resp = await fetch(
-      await getVisionUrl(),
+      visionUrl,
       {
         method: "POST",
         headers: {
@@ -1184,7 +1188,7 @@ async function analyzeOcrAndClassify(
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
+          model: visionModel,
           max_tokens: 16384,
           response_format: { type: "json_object" },
           temperature: 0,
@@ -1205,13 +1209,21 @@ async function analyzeOcrAndClassify(
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
+      console.error(`[analyzeOcrAndClassify] API error status=${resp.status} body=${errText.slice(0, 500)}`);
       throw new AiApiError(`OCR+分类 API error ${resp.status}: ${errText}`, resp.status);
     }
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    console.log(`[analyzeOcrAndClassify] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
+    // AI 返回空响应时直接报错，不用空值假装成功
+    if (!rawText || rawText.trim().length === 0) {
+      console.error("[analyzeOcrAndClassify] AI 返回空响应，完整响应体:", JSON.stringify(data).slice(0, 500));
+      throw new AiApiError("AI 返回空响应（可能被限流或超时）", 503);
+    }
     const jsonStr = stripThinkingBeforeJson(rawText);
     const parsed = parseAiJson(jsonStr);
+    console.log(`[analyzeOcrAndClassify] 解析成功 questionType=${parsed.questionType} subject=${parsed.classification?.subject} ocrText长度=${(parsed.ocrText || "").length}`);
 
     // 净化 OCR 文本：去除题号前缀、真题标签、残留手写标记
     let ocrText = (parsed.ocrText || "").replace(/\\n/g, "\n").replace(/\\t/g, " ");
@@ -1286,8 +1298,10 @@ async function analyzeAnswerAndExplain(
   if (!apiKey) throw new AiApiError("text_key / vision_key 都未配置，请在设置页面填写", 500);
 
   const model = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
+  const apiUrl = await getApiUrl(model, "text_url");
+  console.log(`[analyzeAnswerAndExplain] 请求 model=${model} url=${apiUrl} ocrText长度=${ocrText.length}`);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
+  const timeout = setTimeout(() => controller.abort(), 300000);
 
   try {
     const userText = userAnswer
@@ -1306,7 +1320,7 @@ async function analyzeAnswerAndExplain(
     if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
 
     const resp = await fetch(
-      await getApiUrl(model, "text_url"),
+      apiUrl,
       {
         method: "POST",
         headers: {
@@ -1320,14 +1334,21 @@ async function analyzeAnswerAndExplain(
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
+      console.error(`[analyzeAnswerAndExplain] API error status=${resp.status} body=${errText.slice(0, 500)}`);
       throw new AiApiError(`答案推导 API error ${resp.status}: ${errText}`, resp.status);
     }
 
     const data = await resp.json();
     const rawText: string = data.choices?.[0]?.message?.content || "";
+    console.log(`[analyzeAnswerAndExplain] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
+    if (!rawText || rawText.trim().length === 0) {
+      console.error("[analyzeAnswerAndExplain] AI 返回空响应，完整响应体:", JSON.stringify(data).slice(0, 500));
+      throw new AiApiError("AI 返回空响应（答案推导步骤，可能被限流或超时）", 503);
+    }
     // 文本模型通常不思考外溢，但保险起见也 strip 一下
     const jsonStr = stripThinkingBeforeJson(rawText);
     const parsed = parseAiJson(jsonStr);
+    console.log(`[analyzeAnswerAndExplain] 解析成功 answer=${parsed.correctAnswer} solutions=${parsed.solutions?.length || 0} explanation长度=${(parsed.explanation || "").length}`);
 
     return {
       correctAnswer: parsed.correctAnswer || "",
