@@ -3,6 +3,7 @@ import { validateImageFile, saveUploadData, deleteUploadFile, UploadError } from
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { performAnalysis } from "@/lib/analyze-pipeline";
+import { enqueue } from "@/lib/analysis-queue";
 import sharp from "sharp";
 
 export async function POST(req: NextRequest) {
@@ -50,7 +51,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "入库失败" }, { status: 500 });
     }
 
-    performAnalysis(questionId).catch(err => {
+    // 解析任务进入队列：最多并发 2 个，每题完成后等待 1s 再继续
+    enqueue(async () => {
+      await performAnalysis(questionId);
+    }).catch(err => {
       console.error("Background analysis failed for question", questionId, err);
     });
 

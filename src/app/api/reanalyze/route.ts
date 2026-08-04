@@ -4,6 +4,7 @@ import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
+import { enqueue } from "@/lib/analysis-queue";
 
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
@@ -331,7 +332,10 @@ export async function POST(req: NextRequest) {
   // Set status to pending, clear old error_reason
   runAndSave("UPDATE questions SET status='pending', error_reason=NULL WHERE id=?", [q.id]);
 
-  processReanalyze(q.id, q.ocr_text, q.image_path, apiKey, isAnswerOnly, reason).catch(err => {
+  // 重解析任务进入队列：最多并发 2 个，每题完成后等待 1s 再继续
+  enqueue(async () => {
+    await processReanalyze(q.id, q.ocr_text, q.image_path, apiKey, isAnswerOnly, reason);
+  }).catch(err => {
     console.error("Reanalyze failed:", err);
     runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [String(err).slice(0, 200), q.id]);
   });
