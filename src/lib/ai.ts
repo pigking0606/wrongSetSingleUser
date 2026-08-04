@@ -519,8 +519,8 @@ function convertUnicodeMatrixBrackets(text: string): string {
       b = b.replace(/\s*;\s*/g, " \\\\ ");
       b = b.replace(/\s*\n\s*/g, " \\\\ ");
       // 按 \\ 切分每一行，每行内独立处理列分隔
-      const rows = b.split(/\s*\\\\\s*/).filter(r => r.trim().length > 0);
-      const normalizedRows = rows.map(row => {
+      const rows = b.split(/\s*\\\\\s*/).filter((r: string) => r.trim().length > 0);
+      const normalizedRows = rows.map((row: string) => {
         let r = row.trim();
         // 若行内已有 &，保留不动
         if (r.includes("&")) return r;
