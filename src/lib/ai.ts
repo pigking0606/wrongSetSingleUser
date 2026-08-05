@@ -486,27 +486,23 @@ function replaceUnicodeMath(text: string): string {
     const re = new RegExp(`\\\\n${cmd}(?![a-zA-Z])`, "g");
     result = result.replace(re, `\\${cmd}`);
   }
-  // 通用：\n 后跟字母命令（\nfrac → \frac, \nsqrt → \sqrt 等）
-  result = result.replace(/\\n([a-zA-Z]{2,})/g, (full, cmd) => {
-    // 避免把 JSON 转义的 \n（换行）误转 —— 只转已知 LaTeX 命令
-    const known = ["frac", "sqrt", "sum", "int", "lim", "sin", "cos", "tan", "log", "ln",
-      "to", "infty", "cdot", "times", "pm", "mp", "div", "leq", "geq", "neq", "approx",
-      "equiv", "sim", "propto", "partial", "nabla", "forall", "exists", "in", "notin",
-      "subset", "supset", "cup", "cap", "emptyset", "alpha", "beta", "gamma", "delta",
-      "epsilon", "theta", "lambda", "mu", "pi", "sigma", "omega", "phi", "rho", "tau",
-      "Delta", "Sigma", "Omega", "Phi", "Gamma", "Theta", "Lambda", "ln", "exp", "max",
-      "min", "sup", "inf", "arg", "begin", "end", "left", "right", "vec", "hat", "bar",
-      "tilde", "dot", "ddot", "mathbf", "mathrm", "mathcal", "displaystyle", "textstyle",
-      "dfrac", "tfrac", "cfrac", "sqrt", "binom", "choose"];
-    if (known.includes(cmd)) return `\\${cmd}`;
-    return full;
+  // 处理字面量 \n（反斜杠+n）：
+  // 1. 如果 \n + 后续字母构成已知 LaTeX 命令（如 \nabla, \neq, \nu），保留不动
+  // 2. 如果不是已知命令（如 \nA. \nB. 选项换行, \n2. 数字编号），\n 是字面量换行符 → 转为真正的换行
+  const knownNCmds = new Set([
+    "nabla", "neq", "nu", "ni", "not", "neg", "nearrow", "nwarrow",
+    "newline", "nonumber", "noindent", "nolimits", "normalsize",
+    "nsubseteq", "nsupseteq"
+  ]);
+  // 先处理 \n + 字母序列：已知命令保留，未知的 \n 转换为换行
+  result = result.replace(/\\n([a-zA-Z]*)/g, (full, rest) => {
+    if (rest && knownNCmds.has("n" + rest)) return full;  // \nabla \neq 等保留
+    return "\n" + rest;  // \nA. → 换行+A.，\nB. → 换行+B.
   });
 
-  // 修复字面量 \n（反斜杠+n，非 LaTeX 命令）→ 真正的换行符
-  // AI 输出 JSON 中写 \\n（JSON.parse 后为字面量 \n），表示换行
-  // 但 \nabla \neq 等已在上方处理为 LaTeX 命令，这里只处理 \n 后跟空格/标点/行尾的情况
+  // 再处理剩余的 \n（后跟数字/标点/空格/行尾）→ 换行
   // 典型："(n\geq3) \n \alpha_{1}=..." → "(n\geq3)\n\alpha_{1}=..."
-  result = result.replace(/\\n(?=\s|[，。；：、,.;:!！）)\]}]|$)/g, "\n");
+  result = result.replace(/\\n/g, "\n");
 
   // 修复 OCR 字面量 "o" 被当作 \to —— 典型 "lim_{n o \infty}" → "lim_{n \to \infty}"
   // 这个问题源于 AI 输出 \to 时反斜杠丢失变成 "to"，再被 OCR 误识别为 "o"
@@ -514,17 +510,62 @@ function replaceUnicodeMath(text: string): string {
 
   // 修复 JSON.parse 破坏的 LaTeX 命令：
   // \frac 的 \f 被 JSON.parse 当作 form feed (U+000C) → 恢复为 \frac
-  // \tan \theta 的 \t 被 JSON.parse 当作 tab (U+0009) → 恢复为 \tan \theta
-  // \binom \b 的 \b 被当作 backspace (U+0008) → 恢复为 \binom
-  // \rho \r 的 \r 被当作回车 (U+000D) → 恢复为 \rho
-  // \nabla \n 被 JSON.parse 当作换行 → 恢复为 \nabla（已在上面处理）
+  // \tan \theta \times 的 \t 被 JSON.parse 当作 tab (U+0009) → 恢复
+  // \binom \bar \beta 的 \b 被当作 backspace (U+0008) → 恢复
+  // \rho \right 的 \r 被当作回车 (U+000D) → 恢复
+  // \nabla \neq \nu 的 \n 被当作换行 → 恢复
+  // 规则：直接匹配 控制字符+完整命令名，替换为 \+完整命令名
+  // 按命令长度降序排列，先匹配长命令再匹配短命令
+  // 避免 \tan 中的 \t 先被匹配导致 \times 残缺
   const controlCharCmds: Array<[RegExp, string]> = [
-    [/\x0c(?=rac\b)/g, "\\frac"],           // form feed + rac → \frac
-    [/\x09(?=an\b|an\()/g, "\\tan"],        // tab + an → \tan
-    [/\x09(?=heta\b|heta\{)/g, "\\theta"],  // tab + heta → \theta
-    [/\x09(?=au\b|au\{)/g, "\\tau"],        // tab + au → \tau
-    [/\x08(?=inom\b)/g, "\\binom"],         // backspace + inom → \binom
-    [/\x0d(?=ho\b|ho\{)/g, "\\rho"],        // carriage return + ho → \rho
+    // \t 开头命令（tab U+0009）—— 按命令长度降序
+    [/\x09theta(?![a-zA-Z])/g, "\\theta"],
+    [/\x09times(?![a-zA-Z])/g, "\\times"],       // 原来缺失！
+    [/\x09textbf(?![a-zA-Z])/g, "\\textbf"],
+    [/\x09textit(?![a-zA-Z])/g, "\\textit"],
+    [/\x09textrm(?![a-zA-Z])/g, "\\textrm"],
+    [/\x09texttt(?![a-zA-Z])/g, "\\texttt"],
+    [/\x09tfrac(?![a-zA-Z])/g, "\\tfrac"],
+    [/\x09text(?![a-zA-Z])/g, "\\text"],
+    [/\x09tan(?![a-zA-Z])/g, "\\tan"],
+    [/\x09tau(?![a-zA-Z])/g, "\\tau"],
+    [/\x09top(?![a-zA-Z])/g, "\\top"],
+    [/\x09to(?![a-zA-Z])/g, "\\to"],
+    // \n 开头命令（newline U+000A）—— 按命令长度降序
+    [/\x0anonumber(?![a-zA-Z])/g, "\\nonumber"],
+    [/\x0anewline(?![a-zA-Z])/g, "\\newline"],
+    [/\x0anoindent(?![a-zA-Z])/g, "\\noindent"],
+    [/\x0anormalsize(?![a-zA-Z])/g, "\\normalsize"],
+    [/\x0anwarrow(?![a-zA-Z])/g, "\\nwarrow"],
+    [/\x0anearrow(?![a-zA-Z])/g, "\\nearrow"],
+    [/\x0anolimits(?![a-zA-Z])/g, "\\nolimits"],
+    [/\x0anabla(?![a-zA-Z])/g, "\\nabla"],
+    [/\x0aneq(?![a-zA-Z])/g, "\\neq"],
+    [/\x0anot(?![a-zA-Z])/g, "\\not"],
+    [/\x0aneg(?![a-zA-Z])/g, "\\neg"],
+    [/\x0anu(?![a-zA-Z])/g, "\\nu"],
+    [/\x0ani(?![a-zA-Z])/g, "\\ni"],
+    // \r 开头命令（carriage return U+000D）
+    [/\x0drangle(?![a-zA-Z])/g, "\\rangle"],
+    [/\x0drfloor(?![a-zA-Z])/g, "\\rfloor"],
+    [/\x0dright(?![a-zA-Z])/g, "\\right"],
+    [/\x0drceil(?![a-zA-Z])/g, "\\rceil"],
+    [/\x0droot(?![a-zA-Z])/g, "\\root"],
+    [/\x0drho(?![a-zA-Z])/g, "\\rho"],
+    // \b 开头命令（backspace U+0008）
+    [/\x08boldsymbol(?![a-zA-Z])/g, "\\boldsymbol"],
+    [/\x08binom(?![a-zA-Z])/g, "\\binom"],
+    [/\x08beta(?![a-zA-Z])/g, "\\beta"],
+    [/\x08bigl(?![a-zA-Z])/g, "\\bigl"],
+    [/\x08bigr(?![a-zA-Z])/g, "\\bigr"],
+    [/\x08bigg(?![a-zA-Z])/g, "\\bigg"],
+    [/\x08big(?![a-zA-Z])/g, "\\big"],
+    [/\x08bar(?![a-zA-Z])/g, "\\bar"],
+    [/\x08bf(?![a-zA-Z])/g, "\\bf"],
+    // \f 开头命令（form feed U+000C）
+    [/\x0cforall(?![a-zA-Z])/g, "\\forall"],
+    [/\x0cfrac(?![a-zA-Z])/g, "\\frac"],
+    [/\x0cfont(?![a-zA-Z])/g, "\\font"],
   ];
   for (const [re, replacement] of controlCharCmds) {
     result = result.replace(re, replacement);
@@ -639,8 +680,10 @@ export function sanitizeLatex(text: string) {
     }
   );
 
-  // 2. Merge adjacent inline blocks: $a$b$ → $ab$
-  text = text.replace(/\$(\s*)\$/g, (_, space) => space || " ");
+  // 2. Merge adjacent inline blocks: $ $ → space
+  //    只处理 $ + 至少1个空格 + $ 的情况，不处理 $$（display math 定界符）
+  //    避免 $$x^2$$ 被破坏
+  text = text.replace(/\$\s+\$/g, " ");
 
   // 3. Merge single-command blocks into following text:
   //    $\ln$ y → $\ln y$  |  $\cdot$ ( → $\cdot ($
@@ -648,12 +691,14 @@ export function sanitizeLatex(text: string) {
   //    x =$ $\frac → x = $\frac  (merge text before $cmd$ into block)
   text = text.replace(/([a-zA-Z0-9)])\s+\$(\\[a-zA-Z]+)\$/g, (_, prev, cmd) => `$${prev} ${cmd}$`);
 
-  // 4. Remove empty math blocks
-  text = text.replace(/\$\$/g, "");
+  // 4. Remove empty math blocks (4+ consecutive $ only)
+  //    不删除 $$ —— 它是 display math 定界符 $$...$$
+  text = text.replace(/\${4,}/g, "");
 
   // 5. Fix leading/trailing space inside $...$ blocks
-  text = text.replace(/\$\s+/g, "$");
-  text = text.replace(/\s+\$/g, "$");
+  //    只处理 $ + 空格（单个$），不处理 $$ + 空格（display math）
+  text = text.replace(/(?<!\$)\$\s+/g, "$");
+  text = text.replace(/\s+\$(?!\$)/g, "$");
 
   return text;
 }
