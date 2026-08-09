@@ -295,7 +295,8 @@ export default function ChaptersPage() {
                 {node.level === 1 ? <IconFolder size={15} /> : node.level === 2 ? <IconBook size={15} /> : <IconFile size={15} />}
               </span>
               <span style={{
-                flex: 1, minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
+                flex: "0 1 auto", minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
+                marginRight: ".5rem",
                 fontSize: node.level === 1 ? ".95rem" : node.level === 2 ? ".85rem" : ".8rem",
                 fontWeight: node.level === 1 ? 600 : node.level === 2 ? 500 : 400,
               }}>
@@ -383,7 +384,8 @@ export default function ChaptersPage() {
                   <IconFolder size={15} />
                 </span>
                 <span style={{
-                  flex: 1, minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
+                  flex: "0 1 auto", minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
+                  marginRight: ".5rem",
                   fontSize: ".95rem", fontWeight: 600,
                 }}>
                   {node.name}
