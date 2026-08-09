@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { IconFolder, IconBook, IconFile, IconGrip } from "@/lib/icons";
+import { IconFolder, IconBook, IconFile, IconGrip, IconChevronDown, IconChevronRight } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -23,10 +23,12 @@ export default function ChaptersPage() {
   const [newName, setNewName] = useState("");
   const [error, setError] = useState("");
 
+  // 展开/折叠状态（按节点 id 记录，默认全部展开）
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+
   // 动态拖拽状态
   const [dragId, setDragId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
-  // 拖拽位置：'before' | 'after'（基于鼠标在卡片中的位置）
   const [dragPos, setDragPos] = useState<"before" | "after">("before");
   const dragIdRef = useRef<number | null>(null);
   const dragOverIdRef = useRef<number | null>(null);
@@ -41,6 +43,15 @@ export default function ChaptersPage() {
   }, []);
 
   useEffect(() => { loadTree(); }, [loadTree]);
+
+  const toggleCollapse = (id: number) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const handleAdd = async () => {
     if (!newName.trim()) return;
@@ -133,12 +144,8 @@ export default function ChaptersPage() {
     if (!siblings) { setDragId(null); setDragOverId(null); return; }
 
     const fromIdx = siblings.findIndex(s => s.id === srcId);
-    let toIdx = siblings.findIndex(s => s.id === targetId);
-    if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDragOverId(null); return; }
-
     const [moved] = siblings.splice(fromIdx, 1);
-    // 重新计算目标索引（移除后可能偏移）
-    toIdx = siblings.findIndex(s => s.id === targetId);
+    let toIdx = siblings.findIndex(s => s.id === targetId);
     const insertIdx = pos === "before" ? toIdx : toIdx + 1;
     siblings.splice(insertIdx, 0, moved);
 
@@ -164,14 +171,13 @@ export default function ChaptersPage() {
   const onGripPointerDown = (e: React.PointerEvent, nodeId: number) => {
     if (!authed) return;
     e.preventDefault();
+    e.stopPropagation();
     setDragId(nodeId);
-    // 自动跟随指针（pointermove 在 window 上监听）
   };
 
-  // 全局监听 pointermove 更新 hover 目标，pointerup 完成放置
+  // 全局 pointerup 完成放置
   useEffect(() => {
     if (dragId === null) return;
-    const handleMove = () => { /* 由卡片 onPointerMove 更新目标 */ };
     const handleUp = () => {
       const overId = dragOverIdRef.current;
       const pos = dragPosRef.current;
@@ -182,12 +188,8 @@ export default function ChaptersPage() {
         setDragOverId(null);
       }
     };
-    window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-    };
+    return () => { window.removeEventListener("pointerup", handleUp); };
   }, [dragId]);
 
   // 卡片 onPointerMove：判断鼠标是否在此卡片上，并计算 before/after
@@ -202,55 +204,42 @@ export default function ChaptersPage() {
     setDragPos(pos);
   };
 
-  // 卡片样式工厂：横向圆角长方形
-  const cardStyle = (node: ChapterNode, isDrag: boolean, isOver: boolean, overPos: "before" | "after"): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      display: "flex",
-      alignItems: "center",
-      gap: ".5rem",
-      padding: ".5rem .75rem",
-      margin: ".25rem 0",
-      borderRadius: "12px",
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      boxShadow: "var(--shadow)",
-      transition: "transform .15s ease, box-shadow .15s ease, opacity .15s",
-      position: "relative",
-      cursor: "default",
-      flexWrap: "wrap",
-    };
-    if (isDrag) {
-      base.opacity = 0.4;
-    }
-    if (isOver) {
-      // 指示线（左/右边框高亮）
-      const side = overPos === "before" ? "left" : "right";
-      base.borderLeftWidth = side === "left" ? "3px" : "1px";
-      base.borderRightWidth = side === "right" ? "3px" : "1px";
-      base.borderLeftColor = side === "left" ? "var(--accent)" : "var(--border)";
-      base.borderRightColor = side === "right" ? "var(--accent)" : "var(--border)";
-      base.background = "var(--bg-hover)";
-    }
-    return base;
-  };
+  // 层级图标（科目/章节/知识点）
+  const LevelIcon = ({ level }: { level: number }) =>
+    level === 1 ? <IconFolder size={15} /> : level === 2 ? <IconBook size={15} /> : <IconFile size={15} />;
 
-  // 层级缩进容器
-  const levelIndent = (level: number): React.CSSProperties => ({
-    marginLeft: level > 1 ? `${(level - 1) * 1.5}rem` : 0,
-    transition: "margin .15s",
-  });
-
-  // 子节点容器标题（父节点名称 + 添加子节点按钮）
-  const renderNode = (node: ChapterNode): React.ReactNode => {
+  // 统一卡片渲染（无缩进，靠左）
+  const renderCard = (node: ChapterNode): React.ReactNode => {
     const isDrag = dragId === node.id;
     const isOver = dragOverId === node.id;
     const overPos = isOver ? dragPos : "before";
+    const hasChildren = node.children.length > 0;
+    const isCollapsed = collapsed.has(node.id);
+
+    // 卡片样式：横向圆角长方形，内容居左
+    const cardStyle: React.CSSProperties = {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-start", // 居左
+      gap: ".4rem",
+      padding: ".5rem .75rem",
+      margin: ".3rem 0",
+      borderRadius: "12px",
+      background: isOver ? "var(--bg-hover)" : "var(--bg-card)",
+      border: "1px solid var(--border)",
+      boxShadow: "var(--shadow)",
+      transition: "background .15s, opacity .15s, border-color .15s",
+      opacity: isDrag ? 0.4 : 1,
+      borderLeftWidth: isOver && overPos === "before" ? "3px" : "1px",
+      borderRightWidth: isOver && overPos === "after" ? "3px" : "1px",
+      borderLeftColor: isOver && overPos === "before" ? "var(--accent)" : "var(--border)",
+      borderRightColor: isOver && overPos === "after" ? "var(--accent)" : "var(--border)",
+    };
 
     return (
-      <div key={node.id} style={levelIndent(node.level)}>
-        {/* 卡片本身 */}
+      <div key={node.id}>
         <div
-          style={cardStyle(node, isDrag, isOver, overPos)}
+          style={cardStyle}
           onPointerMove={(e) => onCardPointerMove(e, node)}
         >
           {/* 拖拽手柄 */}
@@ -259,12 +248,8 @@ export default function ChaptersPage() {
               onPointerDown={(e) => onGripPointerDown(e, node.id)}
               style={{
                 cursor: dragId !== null ? "grabbing" : "grab",
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                color: "var(--text-muted)",
-                touchAction: "none",
-                padding: "0 .15rem",
+                flexShrink: 0, display: "flex", alignItems: "center",
+                color: "var(--text-muted)", touchAction: "none",
               }}
               title="拖拽排序"
             >
@@ -272,7 +257,20 @@ export default function ChaptersPage() {
             </span>
           )}
 
-          {/* 图标 + 名称 */}
+          {/* 展开/折叠按钮（仅有子节点时显示） */}
+          {hasChildren ? (
+            <span
+              onClick={() => toggleCollapse(node.id)}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, color: "var(--text-muted)" }}
+              title={isCollapsed ? "展开" : "折叠"}
+            >
+              {isCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
+            </span>
+          ) : (
+            <span style={{ width: "14px", flexShrink: 0 }} />
+          )}
+
+          {/* 编辑模式 */}
           {editing === node.id ? (
             <div style={{ display: "flex", gap: ".4rem", flex: 1, flexWrap: "wrap", alignItems: "center" }}>
               <input
@@ -291,134 +289,51 @@ export default function ChaptersPage() {
             </div>
           ) : (
             <>
+              {/* 图标 */}
               <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", flexShrink: 0 }}>
-                {node.level === 1 ? <IconFolder size={15} /> : node.level === 2 ? <IconBook size={15} /> : <IconFile size={15} />}
+                <LevelIcon level={node.level} />
               </span>
+              {/* 名称 */}
               <span style={{
                 flex: "0 1 auto", minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
-                marginRight: ".5rem",
                 fontSize: node.level === 1 ? ".95rem" : node.level === 2 ? ".85rem" : ".8rem",
                 fontWeight: node.level === 1 ? 600 : node.level === 2 ? 500 : 400,
+                marginRight: ".5rem",
               }}>
                 {node.name}
               </span>
-              {/* 题目数标签（若有子节点则显示子节点数） */}
-              {node.children.length > 0 && (
+              {/* 子项数标签 */}
+              {hasChildren && (
                 <span style={{
                   fontSize: ".7rem", color: "var(--text-muted)",
                   background: "var(--bg-hover)", padding: ".1rem .4rem", borderRadius: "6px",
                   flexShrink: 0,
                 }}>
-                  {node.children.length} 个子项
+                  {node.children.length}
                 </span>
+              )}
+              {/* 操作按钮 */}
+              {authed && (
+                <div style={{ display: "flex", gap: ".25rem", flexShrink: 0, flexWrap: "wrap", marginLeft: "auto" }}>
+                  <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startEdit(node)}>重命名</button>
+                  {node.level < 3 && (
+                    <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startAdd(node.id, node.level + 1)}>
+                      +{levelLabel(node.level + 1)}
+                    </button>
+                  )}
+                  <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px", color: "var(--red-text)" }} onClick={() => handleDelete(node)}>删除</button>
+                </div>
               )}
             </>
           )}
-
-          {/* 操作按钮 */}
-          {authed && editing !== node.id && (
-            <div style={{ display: "flex", gap: ".25rem", flexShrink: 0, flexWrap: "wrap" }}>
-              <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startEdit(node)}>重命名</button>
-              {node.level < 3 && (
-                <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startAdd(node.id, node.level + 1)}>
-                  +{levelLabel(node.level + 1)}
-                </button>
-              )}
-              <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px", color: "var(--red-text)" }} onClick={() => handleDelete(node)}>删除</button>
-            </div>
-          )}
         </div>
 
-        {/* 子节点列表 */}
-        {node.children.length > 0 && (
-          <div>{node.children.map(renderNode)}</div>
+        {/* 子节点列表（展开时显示，无缩进） */}
+        {hasChildren && !isCollapsed && (
+          <div>{node.children.map(renderCard)}</div>
         )}
       </div>
     );
-  };
-
-  // 顶层节点列表
-  const renderTopLevel = (nodes: ChapterNode[]): React.ReactNode => {
-    return nodes.map(node => {
-      const isDrag = dragId === node.id;
-      const isOver = dragOverId === node.id;
-      const overPos = isOver ? dragPos : "before";
-      return (
-        <div key={node.id}>
-          <div
-            style={cardStyle(node, isDrag, isOver, overPos)}
-            onPointerMove={(e) => onCardPointerMove(e, node)}
-          >
-            {authed && editing !== node.id && (
-              <span
-                onPointerDown={(e) => onGripPointerDown(e, node.id)}
-                style={{
-                  cursor: dragId !== null ? "grabbing" : "grab",
-                  flexShrink: 0, display: "flex", alignItems: "center",
-                  color: "var(--text-muted)", touchAction: "none", padding: "0 .15rem",
-                }}
-                title="拖拽排序"
-              >
-                <IconGrip size={14} />
-              </span>
-            )}
-            {editing === node.id ? (
-              <div style={{ display: "flex", gap: ".4rem", flex: 1, flexWrap: "wrap", alignItems: "center" }}>
-                <input
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  style={{
-                    flex: "1 1 150px", minWidth: "120px", fontSize: ".9rem",
-                    padding: ".3rem .5rem", borderRadius: "8px",
-                    border: "1px solid var(--accent)", background: "var(--bg-card)", color: "var(--text)",
-                  }}
-                  onKeyDown={e => e.key === "Enter" && handleSave(node.id)}
-                  autoFocus
-                />
-                <button className="btn btn-primary" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => handleSave(node.id)} disabled={loading}>保存</button>
-                <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }} onClick={() => setEditing(null)}>取消</button>
-              </div>
-            ) : (
-              <>
-                <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", flexShrink: 0 }}>
-                  <IconFolder size={15} />
-                </span>
-                <span style={{
-                  flex: "0 1 auto", minWidth: 0, wordBreak: "break-word", lineHeight: 1.4,
-                  marginRight: ".5rem",
-                  fontSize: ".95rem", fontWeight: 600,
-                }}>
-                  {node.name}
-                </span>
-                {node.children.length > 0 && (
-                  <span style={{
-                    fontSize: ".7rem", color: "var(--text-muted)",
-                    background: "var(--bg-hover)", padding: ".1rem .4rem", borderRadius: "6px",
-                    flexShrink: 0,
-                  }}>
-                    {node.children.length} 个子项
-                  </span>
-                )}
-              </>
-            )}
-            {authed && editing !== node.id && (
-              <div style={{ display: "flex", gap: ".25rem", flexShrink: 0, flexWrap: "wrap" }}>
-                <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startEdit(node)}>重命名</button>
-                {node.level < 3 && (
-                  <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px" }} onClick={() => startAdd(node.id, node.level + 1)}>
-                    +{levelLabel(node.level + 1)}
-                  </button>
-                )}
-                <button className="btn" style={{ fontSize: ".7rem", padding: ".2rem .45rem", borderRadius: "6px", color: "var(--red-text)" }} onClick={() => handleDelete(node)}>删除</button>
-              </div>
-            )}
-          </div>
-          {node.children.length > 0 && (
-            <div style={{ marginLeft: "1.5rem" }}>{node.children.map(renderNode)}</div>
-          )}
-        </div>
-      );
-    });
   };
 
   return (
@@ -432,7 +347,7 @@ export default function ChaptersPage() {
 
       {authed && (
         <div style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>
-          提示：拖拽 ⠶ 手柄可在同级分类间动态排序，根据鼠标位置插入到目标前方或后方
+          提示：拖拽 ⠶ 手柄可在同级分类间排序；点击 ▼/▶ 可展开/折叠子分类
         </div>
       )}
 
@@ -465,7 +380,7 @@ export default function ChaptersPage() {
         {tree.length === 0 ? (
           <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "1rem 0" }}>暂无分类，请先添加科目</p>
         ) : (
-          renderTopLevel(tree)
+          tree.map(renderCard)
         )}
       </div>
 

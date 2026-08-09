@@ -100,6 +100,18 @@ export function IconChevronRight({ size = 24 }: { size?: number }) {
   </svg>;
 }
 
+export function IconChevronDown({ size = 24 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" {...S}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>;
+}
+
+export function IconChevronUp({ size = 24 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" {...S}>
+    <polyline points="6 15 12 9 18 15" />
+  </svg>;
+}
+
 export function IconCaretDown({ size = 24 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" {...S}>
     <polyline points="6 9 12 15 18 9" />
