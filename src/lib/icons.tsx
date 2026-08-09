@@ -253,3 +253,15 @@ export function IconArrowLeft({ size = 24 }: { size?: number }) {
     <path d="M19 12H5M12 19l-7-7 7-7" />
   </svg>;
 }
+
+// 拖拽手柄（六个点，两列三行）
+export function IconGrip({ size = 24 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+    <circle cx="9" cy="6" r="1.4" />
+    <circle cx="15" cy="6" r="1.4" />
+    <circle cx="9" cy="12" r="1.4" />
+    <circle cx="15" cy="12" r="1.4" />
+    <circle cx="9" cy="18" r="1.4" />
+    <circle cx="15" cy="18" r="1.4" />
+  </svg>;
+}
