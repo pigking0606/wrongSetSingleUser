@@ -700,62 +700,6 @@ export function sanitizeLatex(text: string) {
   text = text.replace(/(?<!\$)\$\s+/g, "$");
   text = text.replace(/\s+\$(?!\$)/g, "$");
 
-  // 6. det / \det → 行列式值形式 |A|
-  //    det(A) → |A|, \det A → |A|, $\det(A)$ → |A|（去 $ 包裹，|A| 为纯文本）
-  //    顺序：先处理带 $ 包裹的整个 math block，再处理块内/纯文本
-  //    $\det(X)$ → |X|
-  text = text.replace(/\$\\det\s*\(\s*([^)]+?)\s*\)\$/g, "|$1|");
-  //    $\det X$ → |X|（单个大写字母变量）
-  text = text.replace(/\$\\det\s+([A-Z])\$/g, "|$1|");
-  //    \det(X) → |X|（LaTeX 命令，数学块内）
-  text = text.replace(/\\det\s*\(\s*([^)]+?)\s*\)/g, "|$1|");
-  //    \det X → |X|（LaTeX 命令，单个大写字母）
-  text = text.replace(/\\det\s+([A-Z])(?![a-zA-Z0-9])/g, "|$1|");
-  //    det(X) → |X|（纯文本 det，\b 边界避免误匹配 determinant）
-  text = text.replace(/\bdet\s*\(\s*([^)]+?)\s*\)/g, "|$1|");
-  //    det X → |X|（纯文本，单个大写字母变量）
-  text = text.replace(/\bdet\s+([A-Z])(?![a-zA-Z0-9])/g, "|$1|");
-
-  // 7. 修复 AI 误输出的非标准关系符命令
-  //    \eq 不是 LaTeX/KaTeX 命令（等号就是普通字符 =），AI 偶尔会把 = 写成 \eq
-  //    导致 KaTeX 渲染为红色 ParseError。同时处理大小写错误的变体。
-  //    顺序：先处理长度更长的 \eqdef 等（避免被 \eq 截断），再处理 \eq
-  //    \eqdef \eqcirc \eqslantless \eqslantgtr 等 KaTeX 不支持的扩展命令 → 移除反斜杠保留为文本
-  text = text.replace(/\\eqdef(?![a-zA-Z])/g, ":=");
-  text = text.replace(/\\eqcirc(?![a-zA-Z])/g, "\\triangleq");
-  text = text.replace(/\\eqslantless(?![a-zA-Z])/g, "\\leqslant");
-  text = text.replace(/\\eqslantgtr(?![a-zA-Z])/g, "\\geqslant");
-  //    \eq（后非字母）→ = ；需在 \eqdef 等已处理后再做
-  text = text.replace(/\\eq(?![a-zA-Z])/g, "=");
-  //    大小写错误变体：\Neq \Leq \Geq \EQ → 标准小写命令
-  text = text.replace(/\\Neq(?![a-zA-Z])/g, "\\neq");
-  text = text.replace(/\\Leq(?![a-zA-Z])/g, "\\leq");
-  text = text.replace(/\\Geq(?![a-zA-Z])/g, "\\geq");
-  text = text.replace(/\\EQ(?![a-zA-Z])/g, "=");
-  //    \equal \equals → = （KaTeX 不识别 \equal）
-  text = text.replace(/\\equals?(?![a-zA-Z])/g, "=");
-
-  // 8. 修复数学块内"裸命令"（AI 漏写反斜杠）：eq neq leq geq → = \neq \leq \geq
-  //    仅在 $...$ / $$...$$ 内部处理，块外的英文叙述保留不动
-  //    lookbehind (?<![\\a-zA-Z]) 排除 \neq（带斜杠）和 sequence/equal/technique 等含 eq 的英文单词
-  //    顺序：先长后短（neq/leq/geq 先于 eq），避免 eq 覆盖 neq 中的子串
-  const NAKED_REL_MAP: Array<[RegExp, string]> = [
-    [/(?<![\\a-zA-Z])neq(?![a-zA-Z])/g, "\\neq"],
-    [/(?<![\\a-zA-Z])leq(?![a-zA-Z])/g, "\\leq"],
-    [/(?<![\\a-zA-Z])geq(?![a-zA-Z])/g, "\\geq"],
-    [/(?<![\\a-zA-Z])approx(?![a-zA-Z])/g, "\\approx"],
-    [/(?<![\\a-zA-Z])equiv(?![a-zA-Z])/g, "\\equiv"],
-    // eq 放最后（最短，避免覆盖 neq/leq/geq 中的 eq 子串）
-    [/(?<![\\a-zA-Z])eq(?![a-zA-Z])/g, "="],
-  ];
-  text = text.replace(/(\$\$[\s\S]+?\$\$|\$[^$]+\$)/g, (block) => {
-    let b = block;
-    for (const [re, rep] of NAKED_REL_MAP) {
-      b = b.replace(re, rep);
-    }
-    return b;
-  });
-
   return text;
 }
 
