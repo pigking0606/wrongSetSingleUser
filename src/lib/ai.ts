@@ -700,6 +700,22 @@ export function sanitizeLatex(text: string) {
   text = text.replace(/(?<!\$)\$\s+/g, "$");
   text = text.replace(/\s+\$(?!\$)/g, "$");
 
+  // 6. det / \det → 行列式值形式 |A|
+  //    det(A) → |A|, \det A → |A|, $\det(A)$ → |A|（去 $ 包裹，|A| 为纯文本）
+  //    顺序：先处理带 $ 包裹的整个 math block，再处理块内/纯文本
+  //    $\det(X)$ → |X|
+  text = text.replace(/\$\\det\s*\(\s*([^)]+?)\s*\)\$/g, "|$1|");
+  //    $\det X$ → |X|（单个大写字母变量）
+  text = text.replace(/\$\\det\s+([A-Z])\$/g, "|$1|");
+  //    \det(X) → |X|（LaTeX 命令，数学块内）
+  text = text.replace(/\\det\s*\(\s*([^)]+?)\s*\)/g, "|$1|");
+  //    \det X → |X|（LaTeX 命令，单个大写字母）
+  text = text.replace(/\\det\s+([A-Z])(?![a-zA-Z0-9])/g, "|$1|");
+  //    det(X) → |X|（纯文本 det，\b 边界避免误匹配 determinant）
+  text = text.replace(/\bdet\s*\(\s*([^)]+?)\s*\)/g, "|$1|");
+  //    det X → |X|（纯文本，单个大写字母变量）
+  text = text.replace(/\bdet\s+([A-Z])(?![a-zA-Z0-9])/g, "|$1|");
+
   return text;
 }
 
