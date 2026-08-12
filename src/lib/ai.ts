@@ -519,56 +519,61 @@ function replaceUnicodeMath(text: string): string {
   // 避免 \tan 中的 \t 先被匹配导致 \times 残缺
   const controlCharCmds: Array<[RegExp, string]> = [
     // \t 开头命令（tab U+0009）—— 按命令长度降序
-    [/\x09theta(?![a-zA-Z])/g, "\\theta"],
-    [/\x09times(?![a-zA-Z])/g, "\\times"],       // 原来缺失！
-    [/\x09textbf(?![a-zA-Z])/g, "\\textbf"],
-    [/\x09textit(?![a-zA-Z])/g, "\\textit"],
-    [/\x09textrm(?![a-zA-Z])/g, "\\textrm"],
-    [/\x09texttt(?![a-zA-Z])/g, "\\texttt"],
-    [/\x09tfrac(?![a-zA-Z])/g, "\\tfrac"],
-    [/\x09text(?![a-zA-Z])/g, "\\text"],
-    [/\x09tan(?![a-zA-Z])/g, "\\tan"],
-    [/\x09tau(?![a-zA-Z])/g, "\\tau"],
-    [/\x09top(?![a-zA-Z])/g, "\\top"],
-    [/\x09to(?![a-zA-Z])/g, "\\to"],
+    [/\x09theta/g, "\\theta"],
+    [/\x09times/g, "\\times"],       // 原来缺失！
+    [/\x09textbf/g, "\\textbf"],
+    [/\x09textit/g, "\\textit"],
+    [/\x09textrm/g, "\\textrm"],
+    [/\x09texttt/g, "\\texttt"],
+    [/\x09tfrac/g, "\\tfrac"],
+    [/\x09text/g, "\\text"],
+    [/\x09tan/g, "\\tan"],
+    [/\x09tau/g, "\\tau"],
+    [/\x09top/g, "\\top"],
+    [/\x09to/g, "\\to"],
     // \n 开头命令（newline U+000A）—— 按命令长度降序
-    [/\x0anonumber(?![a-zA-Z])/g, "\\nonumber"],
-    [/\x0anewline(?![a-zA-Z])/g, "\\newline"],
-    [/\x0anoindent(?![a-zA-Z])/g, "\\noindent"],
-    [/\x0anormalsize(?![a-zA-Z])/g, "\\normalsize"],
-    [/\x0anwarrow(?![a-zA-Z])/g, "\\nwarrow"],
-    [/\x0anearrow(?![a-zA-Z])/g, "\\nearrow"],
-    [/\x0anolimits(?![a-zA-Z])/g, "\\nolimits"],
-    [/\x0anabla(?![a-zA-Z])/g, "\\nabla"],
-    [/\x0aneq(?![a-zA-Z])/g, "\\neq"],
-    [/\x0anot(?![a-zA-Z])/g, "\\not"],
-    [/\x0aneg(?![a-zA-Z])/g, "\\neg"],
-    [/\x0anu(?![a-zA-Z])/g, "\\nu"],
-    [/\x0ani(?![a-zA-Z])/g, "\\ni"],
+    [/\x0anonumber/g, "\\nonumber"],
+    [/\x0anewline/g, "\\newline"],
+    [/\x0anoindent/g, "\\noindent"],
+    [/\x0anormalsize/g, "\\normalsize"],
+    [/\x0anwarrow/g, "\\nwarrow"],
+    [/\x0anearrow/g, "\\nearrow"],
+    [/\x0anolimits/g, "\\nolimits"],
+    [/\x0anabla/g, "\\nabla"],
+    [/\x0aneq/g, "\\neq"],
+    [/\x0anot/g, "\\not"],
+    [/\x0aneg/g, "\\neg"],
+    [/\x0anu/g, "\\nu"],
+    [/\x0ani/g, "\\ni"],
     // \r 开头命令（carriage return U+000D）
-    [/\x0drangle(?![a-zA-Z])/g, "\\rangle"],
-    [/\x0drfloor(?![a-zA-Z])/g, "\\rfloor"],
-    [/\x0dright(?![a-zA-Z])/g, "\\right"],
-    [/\x0drceil(?![a-zA-Z])/g, "\\rceil"],
-    [/\x0droot(?![a-zA-Z])/g, "\\root"],
-    [/\x0drho(?![a-zA-Z])/g, "\\rho"],
+    [/\x0drangle/g, "\\rangle"],
+    [/\x0drfloor/g, "\\rfloor"],
+    [/\x0dright/g, "\\right"],
+    [/\x0drceil/g, "\\rceil"],
+    [/\x0droot/g, "\\root"],
+    [/\x0drho/g, "\\rho"],
     // \b 开头命令（backspace U+0008）
-    [/\x08boldsymbol(?![a-zA-Z])/g, "\\boldsymbol"],
-    [/\x08binom(?![a-zA-Z])/g, "\\binom"],
-    [/\x08beta(?![a-zA-Z])/g, "\\beta"],
-    [/\x08bigl(?![a-zA-Z])/g, "\\bigl"],
-    [/\x08bigr(?![a-zA-Z])/g, "\\bigr"],
-    [/\x08bigg(?![a-zA-Z])/g, "\\bigg"],
-    [/\x08big(?![a-zA-Z])/g, "\\big"],
-    [/\x08bar(?![a-zA-Z])/g, "\\bar"],
-    [/\x08bf(?![a-zA-Z])/g, "\\bf"],
+    [/\x08boldsymbol/g, "\\boldsymbol"],
+    [/\x08binom/g, "\\binom"],
+    [/\x08beta/g, "\\beta"],
+    [/\x08bigl/g, "\\bigl"],
+    [/\x08bigr/g, "\\bigr"],
+    [/\x08bigg/g, "\\bigg"],
+    [/\x08big/g, "\\big"],
+    [/\x08bar/g, "\\bar"],
+    [/\x08bf/g, "\\bf"],
     // \f 开头命令（form feed U+000C）
-    [/\x0cforall(?![a-zA-Z])/g, "\\forall"],
-    [/\x0cfrac(?![a-zA-Z])/g, "\\frac"],
-    [/\x0cfont(?![a-zA-Z])/g, "\\font"],
+    [/\x0cforall/g, "\\forall"],
+    [/\x0cfrac/g, "\\frac"],
+    [/\x0cfont/g, "\\font"],
   ];
   for (const [re, replacement] of controlCharCmds) {
-    result = result.replace(re, replacement);
+    result = result.replace(re, (match, offset: number, string: string) => {
+      // 命令后若直接跟字母，插入空格避免粘连：\timesr → \times r
+      const nextChar = string[offset + match.length];
+      if (nextChar && /[a-zA-Z]/.test(nextChar)) return replacement + " ";
+      return replacement;
+    });
   }
 
   // 矩阵/行列式 Unicode 括号成对转换
@@ -699,6 +704,12 @@ export function sanitizeLatex(text: string) {
   //    只处理 $ + 空格（单个$），不处理 $$ + 空格（display math）
   text = text.replace(/(?<!\$)\$\s+/g, "$");
   text = text.replace(/\s+\$(?!\$)/g, "$");
+
+  // 6. LaTeX 命令后直接跟字母时插入空格
+  //    避免 \timesr \alphab 等粘连导致 KaTeX 无法识别
+  //    非贪婪匹配 + 边界检查：\cmd + 字母 + (非字母且非{)
+  //    \timesr → \times r，但不破坏 \frac{1} (c 后面是 { 不匹配)
+  text = text.replace(/(\\[a-zA-Z]+?)([a-zA-Z])(?![a-zA-Z{}])/g, "$1 $2");
 
   return text;
 }
