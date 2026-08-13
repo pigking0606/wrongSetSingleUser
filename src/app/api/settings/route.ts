@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 import { encrypt, decrypt } from "@/lib/crypto-utils";
+import { invalidateScheduleGate } from "@/lib/analysis-queue";
 
 async function getRaw(key: string, envFallback = "") {
   const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE `key`=?", [key]);
@@ -27,6 +28,15 @@ export async function GET() {
   // GLM-4.6V 等模型不支持 system role，用户可在设置中关闭
   const allowSystemRaw = (await getPlain("vision_allow_system")).trim().toLowerCase();
   const visionAllowSystem = allowSystemRaw ? (allowSystemRaw === "1" || allowSystemRaw === "true" || allowSystemRaw === "yes") : true;
+
+  // 自动解析时段设置
+  const schedEnabledRaw = (await getPlain("analyze_schedule_enabled")).trim().toLowerCase();
+  const analyzeScheduleEnabled = schedEnabledRaw === "1" || schedEnabledRaw === "true" || schedEnabledRaw === "yes";
+  let analyzeScheduleWindows: Array<{ start: string; end: string }> = [];
+  let analyzeScheduleExcludes: Array<{ start: string; end: string }> = [];
+  try { analyzeScheduleWindows = JSON.parse(await getPlain("analyze_schedule_windows") || "[]"); } catch { /* */ }
+  try { analyzeScheduleExcludes = JSON.parse(await getPlain("analyze_schedule_excludes") || "[]"); } catch { /* */ }
+
   return NextResponse.json({
     visionKey: await getKey("vision_key", "DASHSCOPE_API_KEY"),
     visionModel: await getPlain("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
@@ -35,6 +45,9 @@ export async function GET() {
     textKey: (await getKey("text_key", "DEEPSEEK_API_KEY")) || (await getKey("vision_key", "DASHSCOPE_API_KEY")),
     textModel: await getPlain("text_model", "TEXT_MODEL") || "deepseek-chat",
     textUrl: await getPlain("text_url"),
+    analyzeScheduleEnabled,
+    analyzeScheduleWindows,
+    analyzeScheduleExcludes,
   });
 }
 
@@ -52,6 +65,11 @@ export async function POST(req: NextRequest) {
   if (body.textModel !== undefined) pairs.push(["text_model", body.textModel]);
   if (body.textUrl !== undefined) pairs.push(["text_url", body.textUrl]);
 
+  // 自动解析时段设置（明文存储 JSON）
+  if (body.analyzeScheduleEnabled !== undefined) pairs.push(["analyze_schedule_enabled", body.analyzeScheduleEnabled ? "1" : "0"]);
+  if (body.analyzeScheduleWindows !== undefined) pairs.push(["analyze_schedule_windows", JSON.stringify(body.analyzeScheduleWindows || [])]);
+  if (body.analyzeScheduleExcludes !== undefined) pairs.push(["analyze_schedule_excludes", JSON.stringify(body.analyzeScheduleExcludes || [])]);
+
   for (const [k, v] of pairs) {
     // Encrypt API key fields before storing; model/URL stay plain
     const stored = KEY_FIELDS.has(k) ? encrypt(v || "") : (v || "");
@@ -62,6 +80,11 @@ export async function POST(req: NextRequest) {
       "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
       [k, stored]
     );
+  }
+
+  // 清除时段 gate 缓存，使新设置立即生效
+  if (body.analyzeScheduleEnabled !== undefined || body.analyzeScheduleWindows !== undefined || body.analyzeScheduleExcludes !== undefined) {
+    invalidateScheduleGate();
   }
 
   return NextResponse.json({ ok: true });

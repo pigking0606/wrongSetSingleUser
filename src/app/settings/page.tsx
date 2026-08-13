@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { IconEye, IconSparkle, IconCheck, IconRefresh, IconX } from "@/lib/icons";
+import { IconEye, IconSparkle, IconCheck, IconRefresh, IconX, IconCalendar } from "@/lib/icons";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -18,6 +18,10 @@ export default function SettingsPage() {
   const [textKey, setTextKey] = useState("");
   const [textModel, setTextModel] = useState("");
   const [textUrl, setTextUrl] = useState("");
+  // 自动解析时段设置
+  const [schedEnabled, setSchedEnabled] = useState(false);
+  const [schedWindows, setSchedWindows] = useState<Array<{ start: string; end: string }>>([]);
+  const [schedExcludes, setSchedExcludes] = useState<Array<{ start: string; end: string }>>([]);
   const [banks, setBanks] = useState<{id:number;name:string}[]>([]);
   const [newBankName, setNewBankName] = useState("");
   const [saved, setSaved] = useState(false);
@@ -36,6 +40,9 @@ export default function SettingsPage() {
       setTextKey(d.textKey || "");
       setTextModel(d.textModel || "deepseek-chat");
       setTextUrl(d.textUrl || "");
+      setSchedEnabled(!!d.analyzeScheduleEnabled);
+      setSchedWindows(Array.isArray(d.analyzeScheduleWindows) ? d.analyzeScheduleWindows : []);
+      setSchedExcludes(Array.isArray(d.analyzeScheduleExcludes) ? d.analyzeScheduleExcludes : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -49,6 +56,9 @@ export default function SettingsPage() {
         visionKey: visionKey.trim(), visionModel: visionModel.trim(), visionUrl: visionUrl.trim(),
         visionAllowSystem,
         textKey: textKey.trim(), textModel: textModel.trim(), textUrl: textUrl.trim(),
+        analyzeScheduleEnabled: schedEnabled,
+        analyzeScheduleWindows: schedWindows,
+        analyzeScheduleExcludes: schedExcludes,
       }),
     });
     if (resp.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
@@ -195,6 +205,68 @@ export default function SettingsPage() {
             </pre>
           )}
         </div>
+      </div>
+
+      {/* 自动解析时段设置 */}
+      <div className="card">
+        <h2 style={{ fontSize: ".95rem", fontWeight: 600, marginBottom: ".75rem", display: "flex", alignItems: "center", gap: ".3rem" }}>
+          <IconCalendar size={18} /> 自动解析时段
+        </h2>
+        <label style={{ fontSize: ".8rem", display: "flex", alignItems: "center", gap: ".4rem", cursor: authed ? "pointer" : "default", color: "var(--text-muted)", marginBottom: ".5rem" }}>
+          <input type="checkbox" checked={schedEnabled} disabled={!authed}
+            onChange={e => setSchedEnabled(e.target.checked)} />
+          启用时段限制
+          <span style={{ fontSize: ".7rem" }}>
+            （开启后上传的题目仅在允许时段内自动解析，其余时间排队等待）
+          </span>
+        </label>
+
+        {schedEnabled && (
+          <div style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
+            {/* 允许时段 */}
+            <div>
+              <div style={{ fontSize: ".8rem", fontWeight: 600, marginBottom: ".3rem", color: "var(--green-text)" }}>允许时段（仅这些时段执行解析）</div>
+              {schedWindows.map((w, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: ".4rem", marginBottom: ".3rem" }}>
+                  <input type="time" value={w.start} disabled={!authed}
+                    onChange={e => setSchedWindows(prev => prev.map((x, j) => j === i ? { ...x, start: e.target.value } : x))}
+                    style={{ fontSize: ".8rem" }} />
+                  <span style={{ color: "var(--text-muted)" }}>—</span>
+                  <input type="time" value={w.end} disabled={!authed}
+                    onChange={e => setSchedWindows(prev => prev.map((x, j) => j === i ? { ...x, end: e.target.value } : x))}
+                    style={{ fontSize: ".8rem" }} />
+                  <button className="btn" style={{ fontSize: ".7rem", color: "var(--red-text)", padding: ".2rem .4rem" }}
+                    onClick={() => setSchedWindows(prev => prev.filter((_, j) => j !== i))}>删除</button>
+                </div>
+              ))}
+              {authed && <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }}
+                onClick={() => setSchedWindows(prev => [...prev, { start: "00:00", end: "06:00" }])}>+ 添加允许时段</button>}
+            </div>
+
+            {/* 排除时段 */}
+            <div>
+              <div style={{ fontSize: ".8rem", fontWeight: 600, marginBottom: ".3rem", color: "var(--red-text)" }}>排除时段（允许时段内不执行的时段）</div>
+              {schedExcludes.map((w, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: ".4rem", marginBottom: ".3rem" }}>
+                  <input type="time" value={w.start} disabled={!authed}
+                    onChange={e => setSchedExcludes(prev => prev.map((x, j) => j === i ? { ...x, start: e.target.value } : x))}
+                    style={{ fontSize: ".8rem" }} />
+                  <span style={{ color: "var(--text-muted)" }}>—</span>
+                  <input type="time" value={w.end} disabled={!authed}
+                    onChange={e => setSchedExcludes(prev => prev.map((x, j) => j === i ? { ...x, end: e.target.value } : x))}
+                    style={{ fontSize: ".8rem" }} />
+                  <button className="btn" style={{ fontSize: ".7rem", color: "var(--red-text)", padding: ".2rem .4rem" }}
+                    onClick={() => setSchedExcludes(prev => prev.filter((_, j) => j !== i))}>删除</button>
+                </div>
+              ))}
+              {authed && <button className="btn" style={{ fontSize: ".75rem", padding: ".3rem .6rem" }}
+                onClick={() => setSchedExcludes(prev => [...prev, { start: "03:00", end: "03:30" }])}>+ 添加排除时段</button>}
+            </div>
+            <p style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: 0 }}>
+              结束时间为排他（不包含），如 00:00—06:00 表示 00:00 至 05:59。跨天请拆分为两段。
+            </p>
+          </div>
+        )}
       </div>
 
       {authed && <button className="btn btn-primary" onClick={save} style={{ alignSelf: "flex-start", padding: ".6rem 1.5rem" }}>
