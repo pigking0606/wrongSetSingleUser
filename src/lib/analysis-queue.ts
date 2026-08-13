@@ -40,8 +40,15 @@ function timeToMin(t: string): number {
   return (parts[0] || 0) * 60 + (parts[1] || 0);
 }
 
+// 返回北京时间（UTC+8）的当前分钟数。服务器可能运行在非东八区，需统一按北京时间判断时段
+function beijingMinutes(now: Date): number {
+  // UTC 时间 + 8 小时，再取模 24 小时得到北京时间
+  const utc = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return (utc + 8 * 60) % (24 * 60);
+}
+
 function inWindow(now: Date, w: TimeWindow): boolean {
-  const cur = now.getHours() * 60 + now.getMinutes();
+  const cur = beijingMinutes(now);
   const s = timeToMin(w.start);
   const e = timeToMin(w.end);
   if (s === e) return false; // 空区间
