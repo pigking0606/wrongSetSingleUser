@@ -41,6 +41,34 @@ const INLINE_RE = /(\$[^$]+\$)/g;
 // Uses backreference \2 to ensure begin/end environment names match
 const ENV_BLOCK = /(\\begin\{([^}]+)\}[\s\S]*?\\end\{\2\})/g;
 
+// 常见 LaTeX 数学命令集合
+// 用于修复命令名与后续字母粘连（\timesr → \times r）：匹配已知命令的最长前缀
+// 避免非贪婪正则把合法命令拆坏（\times → \time s）
+const LATEX_CMD_SET = new Set<string>([
+  // 二元运算
+  "times","cdot","pm","mp","div","ast","star","circ","bullet","oplus","ominus","otimes","oslash","odot","bigcirc","dagger","ddagger","amalg",
+  // 关系
+  "leq","geq","neq","approx","equiv","sim","simeq","cong","propto","ll","gg","subset","supset","subseteq","supseteq","in","notin","ni","mid","nmid","parallel","perp","prec","succ","preceq","succeq","asymp","doteq","bowtie","models","vdash","dashv","top","bot",
+  // 箭头
+  "to","rightarrow","leftarrow","leftrightarrow","Rightarrow","Leftarrow","Leftrightarrow","mapsto","longrightarrow","longleftarrow","uparrow","downarrow","updownarrow","nearrow","searrow","swarrow","nwarrow","hookrightarrow","hookleftarrow","rightleftharpoons","leftrightharpoons",
+  // 希腊字母
+  "alpha","beta","gamma","delta","epsilon","varepsilon","zeta","eta","theta","vartheta","iota","kappa","lambda","mu","nu","xi","pi","varpi","rho","varrho","sigma","varsigma","tau","upsilon","phi","varphi","chi","psi","omega","Gamma","Delta","Theta","Lambda","Xi","Pi","Sigma","Upsilon","Phi","Psi","Omega",
+  // 函数
+  "sin","cos","tan","cot","sec","csc","sinh","cosh","tanh","coth","arcsin","arccos","arctan","log","ln","lg","exp","det","gcd","max","min","lim","sup","inf","arg","deg","dim","ker","Pr","hom",
+  // 微积分/累加
+  "frac","tfrac","dfrac","cfrac","binom","sqrt","int","iint","iiint","oint","sum","prod","coprod","infty","partial","nabla","limsup","liminf","bigcup","bigcap","bigsqcup","bigvee","bigwedge","bigoplus","bigotimes","bigodot",
+  // 文本/样式
+  "text","textbf","textit","textrm","texttt","mbox","mathbf","mathit","mathrm","mathsf","mathtt","boldsymbol","mathbb","mathcal","mathfrak","displaystyle","textstyle","scriptstyle","scriptscriptstyle",
+  // 定界符/括号
+  "left","right","big","bigl","bigr","Big","Bigl","Bigr","bigg","biggl","biggr","Bigg","Biggl","Biggr","lvert","rvert","lVert","rVert","Vert","vert",
+  // 上下标/重音/线
+  "hat","bar","vec","tilde","dot","ddot","acute","grave","breve","check","widehat","widetilde","overline","underline","overbrace","underbrace","overleftarrow","overrightarrow","overleftrightarrow",
+  // 环境
+  "begin","end","pmatrix","bmatrix","Bmatrix","vmatrix","Vmatrix","matrix","cases","aligned","align","array","split","gathered","gather","multline","smallmatrix","subarray",
+  // 其他常用
+  "forall","exists","emptyset","varnothing","aleph","hbar","imath","jmath","ell","Re","Im","wp","angle","measuredangle","triangle","square","Box","Diamond","blacksquare","clubsuit","diamondsuit","heartsuit","spadesuit","ldots","cdots","vdots","ddots","dots","dotsc","dotsb","dotsm","dotsi","dotso","newline","nonumber","noindent","normalsize","rule","linebreak","bf","it","rm","sf","tt","em","sc","qquad","quad","enspace","thinspace","negthinspace",
+]);
+
 export function autoWrapMathDelimiters(text: string) {
   if (!text) return text;
 
@@ -67,7 +95,14 @@ export function autoWrapMathDelimiters(text: string) {
 
       // Non-math segment — wrap bare LaTeX fragments
       // Pass 0: wrap \begin{...}...\end{...} blocks as a unit (matrix, determinant, etc.)
-      let processed = ip.replace(ENV_BLOCK, (match) => `$${match}$`);
+      //         用占位符保护，避免 Pass 1 的 LATEX_FRAGMENT 对已包裹的环境块二次包裹
+      const envBlocks: string[] = [];
+      const ENV_PH = (k: number) => `\u0000ENV${k}\u0000`;
+      let processed = ip.replace(ENV_BLOCK, (match) => {
+        const k = envBlocks.length;
+        envBlocks.push(`$${match}$`);
+        return ENV_PH(k);
+      });
       // Pass 1: wrap LaTeX commands (\frac, \lim, etc.)
       processed = processed.replace(LATEX_FRAGMENT, (match) => {
         if (/^\\[bfnrt]$/.test(match)) return match;
@@ -79,6 +114,10 @@ export function autoWrapMathDelimiters(text: string) {
         if (sp.startsWith("$") && sp.endsWith("$") && sp.length > 2 && k % 2 === 1) return sp;
         return sp.replace(BARE_EXPONENT, (match) => `$${match}$`);
       }).join("");
+      // 恢复环境块
+      for (let k = 0; k < envBlocks.length; k++) {
+        processed = processed.replace(ENV_PH(k), envBlocks[k]);
+      }
       return processed;
     }).join("");
   }).join("");
@@ -705,11 +744,30 @@ export function sanitizeLatex(text: string) {
   text = text.replace(/(?<!\$)\$\s+/g, "$");
   text = text.replace(/\s+\$(?!\$)/g, "$");
 
-  // 6. LaTeX 命令后直接跟字母时插入空格
-  //    避免 \timesr \alphab 等粘连导致 KaTeX 无法识别
-  //    非贪婪匹配 + 边界检查：\cmd + 字母 + (非字母且非{)
-  //    \timesr → \times r，但不破坏 \frac{1} (c 后面是 { 不匹配)
-  text = text.replace(/(\\[a-zA-Z]+?)([a-zA-Z])(?![a-zA-Z{}])/g, "$1 $2");
+  // 6. LaTeX 命令后直接跟字母时插入空格（避免 \timesr \alphab 粘连）
+  //    不能用非贪婪正则（会把 \times 拆成 \time s）。
+  //    改为：贪婪匹配 \cmd字母，在命令集合中找"最长已知命令前缀"，
+  //    命令与剩余字母之间插入空格：\timesr → \times r
+  text = text.replace(/\\([a-zA-Z]+)/g, (full, name: string) => {
+    // 完整命令名已知 → 无需处理
+    if (LATEX_CMD_SET.has(name)) return full;
+    // 尝试提取最长已知前缀：name 可能是 命令名+粘连字母（如 timesr → times + r）
+    for (let len = name.length - 1; len >= 1; len--) {
+      const prefix = name.slice(0, len);
+      if (LATEX_CMD_SET.has(prefix)) {
+        return "\\" + prefix + " " + name.slice(len);
+      }
+    }
+    return full;
+  });
+
+  // 7. 符号匹配成功后前后加 $，确保前端 KaTeX 正确识别解析
+  //    本函数第 0 步 replaceUnicodeMath 会产生新命令（→→\to、2²→2^{2} 等），
+  //    这些裸命令在 autoWrapMathDelimiters 先跑时未被包裹；且 sanitizeLatex
+  //    存在被单独调用的路径（answerOnly 模式等），输入从未经过包裹。
+  //    这里复用 autoWrapMathDelimiters：只包裹未被 $...$ 包裹的裸 LaTeX
+  //    命令/上下标/环境块，已有 $...$ 保持不变，不会产生 $$ 重复包裹。
+  text = autoWrapMathDelimiters(text);
 
   return text;
 }
