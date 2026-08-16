@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { IconQuote, IconUpload, IconRefresh, IconClipboard, IconList, IconFolder, IconBook } from "@/lib/icons";
+import { IconQuote, IconUpload, IconRefresh, IconClipboard, IconList, IconFolder, IconBook, IconFileText } from "@/lib/icons";
 
 interface DbStats { questionCount: number; chapterCount: number; subjectCount: number; reviewCount: number; }
 
@@ -121,6 +121,7 @@ export default function Home() {
           { href: "/chapters", title: "分类管理", desc: "科目 / 章节 / 知识点", icon: <IconFolder size={20} /> },
           { href: "/daily-questions", title: "每日新题", desc: "当日新增错题汇总", icon: <IconList size={20} /> },
           { href: "/methods", title: "题型解法", desc: "按分类整理解题方法", icon: <IconBook size={20} /> },
+          { href: "/exam-paper", title: "错题拼卷", desc: "自动拼考研模拟卷", icon: <IconFileText size={20} /> },
         ].map(item => (
           <Link key={item.href} href={item.href} className="card" style={{ textDecoration: "none", transition: "transform .15s" }}>
             <div style={{ marginBottom: ".35rem" }}>{item.icon}</div>

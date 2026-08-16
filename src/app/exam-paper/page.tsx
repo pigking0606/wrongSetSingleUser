@@ -1,0 +1,226 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import MathText from "@/lib/math-text";
+
+interface ChapterNode { id: number; name: string; level: number; }
+interface PaperQuestion {
+  id: number; ocr_text: string; chapter_id: number | null;
+  correct_answer: string; explanation: string | null;
+  ai_solutions: string | null; user_answer: string | null;
+  question_type: string; image_path: string | null;
+  difficulty: number;
+  kp_name: string | null; chapter_name: string | null; subject_name: string | null;
+}
+interface PaperSection {
+  type: string; label: string; scorePerQ: number; target: number; count: number;
+  questions: PaperQuestion[];
+}
+interface Paper { sections: PaperSection[]; total: number; totalScore: number; hasEnough: boolean; }
+
+const DIFF_LABELS: Record<number, { text: string; color: string }> = {
+  1: { text: "易", color: "var(--green-text)" },
+  2: { text: "易", color: "var(--green-text)" },
+  3: { text: "中", color: "var(--yellow-text)" },
+  4: { text: "难", color: "var(--red-text)" },
+  5: { text: "难", color: "var(--red-text)" },
+};
+
+export default function ExamPaperPage() {
+  const [banks, setBanks] = useState<{ id: number; name: string }[]>([]);
+  const [selectedBankIds, setSelectedBankIds] = useState<Set<number>>(new Set());
+  const [subjects, setSubjects] = useState<ChapterNode[]>([]);
+  const [subjectId, setSubjectId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [paper, setPaper] = useState<Paper | null>(null);
+  const [showAllAnswers, setShowAllAnswers] = useState(false);
+  const [shownImages, setShownImages] = useState<Set<number>>(new Set());
+  const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects).catch(() => {});
+    fetch("/api/chapters?banks=1").then(r => r.json()).then(d => { if (d.banks) setBanks(d.banks); }).catch(() => {});
+  }, []);
+
+  const toggleBank = (id: number) => {
+    setSelectedBankIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const generate = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedBankIds.size > 0) params.set("bank_id", Array.from(selectedBankIds).join(","));
+      if (subjectId) params.set("subject_id", String(subjectId));
+      const res = await fetch(`/api/exam-paper?${params.toString()}`);
+      const data = await res.json();
+      setPaper(data);
+      setShowAllAnswers(false);
+      setShownImages(new Set());
+      setShownExplanations(new Set());
+    } catch {
+      setPaper(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedBankIds, subjectId]);
+
+  // 首次进入自动生成一份
+  useEffect(() => { generate(); }, [generate]);
+
+  const toggleSet = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setter(next);
+  };
+
+  // 全局连续题号
+  let qNo = 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div>
+        <h1 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0 }}>错题拼好卷</h1>
+        <p style={{ color: "var(--text-muted)", fontSize: ".85rem", marginTop: ".25rem" }}>
+          系统从错题中自动选样，按考研结构与难度比例（易:中:难 = 3:5:2）拼成一张模拟卷
+        </p>
+      </div>
+
+      {/* 筛选 + 生成 */}
+      <div className="card" style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center", padding: ".75rem" }}>
+        <div style={{ display: "flex", gap: ".25rem", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>题库：</span>
+          {banks.map(b => (
+            <label key={b.id} style={{ display: "flex", alignItems: "center", gap: ".25rem", fontSize: ".8rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={selectedBankIds.has(b.id)} onChange={() => toggleBank(b.id)} style={{ width: "15px", height: "15px", cursor: "pointer" }} />
+              {b.name}
+            </label>
+          ))}
+        </div>
+        <select value={subjectId ?? ""} onChange={e => setSubjectId(e.target.value ? parseInt(e.target.value) : null)} style={{ fontSize: ".8rem" }}>
+          <option value="">全部科目</option>
+          {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={generate} disabled={loading}>
+          {loading ? "生成中..." : "生成试卷"}
+        </button>
+        {paper && paper.total > 0 && (
+          <button className="btn" style={{ fontSize: ".85rem" }} onClick={() => setShowAllAnswers(a => !a)}>
+            {showAllAnswers ? "隐藏全部答案" : "显示全部答案"}
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>正在从错题中选样拼卷...</p>
+      ) : !paper || paper.total === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "2rem" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: ".75rem" }}>当前范围内没有可用的错题，请先上传并作答错题</p>
+          <Link href="/upload" style={{ fontSize: ".875rem" }}>去上传错题 →</Link>
+        </div>
+      ) : (
+        <>
+          {/* 试卷头部 */}
+          <div className="card" style={{ textAlign: "center", padding: "1.25rem" }}>
+            <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>错题模拟卷 · 考研结构</div>
+            <div style={{ fontSize: ".8rem", color: "var(--text-muted)", marginTop: ".25rem" }}>
+              共 {paper.total} 题 · 满分 {paper.totalScore} 分
+              {!paper.hasEnough && <span style={{ color: "var(--yellow-text)" }}>（错题不足，已按实际数量出卷）</span>}
+            </div>
+          </div>
+
+          {paper.sections.map(section => {
+            if (section.count === 0) return null;
+            return (
+              <div key={section.type} className="card" style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontWeight: 700, fontSize: "1rem" }}>{section.label}</span>
+                  <span style={{ fontSize: ".78rem", color: "var(--text-muted)" }}>
+                    {section.count} 题 {section.type === "solve"
+                      ? `· 共 ${Math.round(section.count * section.scorePerQ)} 分`
+                      : `· 每题 ${section.scorePerQ} 分`}
+                  </span>
+                </div>
+
+                {section.questions.map(q => {
+                  qNo += 1;
+                  const diff = DIFF_LABELS[q.difficulty] || { text: "中", color: "var(--yellow-text)" };
+                  const showAnswer = showAllAnswers;
+                  return (
+                    <div key={q.id} style={{ borderTop: "1px solid var(--border)", paddingTop: ".75rem", display: "flex", flexDirection: "column", gap: ".6rem" }}>
+                      {/* 题号 + 标签 */}
+                      <div style={{ display: "flex", alignItems: "center", gap: ".4rem", flexWrap: "wrap", fontSize: ".75rem", color: "var(--text-muted)" }}>
+                        <span style={{ fontWeight: 700, fontSize: ".9rem", color: "var(--text)" }}>{qNo}.</span>
+                        {(q.subject_name || q.chapter_name || q.kp_name) && (
+                          <>
+                            {q.subject_name && <span className="tag">{q.subject_name}</span>}
+                            {q.chapter_name && <><span>›</span><span>{q.chapter_name}</span></>}
+                            {q.kp_name && <><span>›</span><span>{q.kp_name}</span></>}
+                          </>
+                        )}
+                        <span className="badge" style={{ background: "var(--tag-bg)", color: "var(--tag-text)" }}>{q.question_type}</span>
+                        <span className="badge" style={{ color: diff.color }}>难度{diff.text}</span>
+                      </div>
+
+                      {/* 题干 */}
+                      <div style={{ fontSize: ".95rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                        <MathText text={q.ocr_text} splitOptions />
+                      </div>
+
+                      {/* 图片 */}
+                      {q.image_path && (
+                        <div>
+                          <button className="btn" style={{ fontSize: ".78rem" }} onClick={() => toggleSet(shownImages, setShownImages, q.id)}>
+                            {shownImages.has(q.id) ? "隐藏图片" : "显示图片"}
+                          </button>
+                          {shownImages.has(q.id) && (
+                            <div style={{ marginTop: ".5rem" }}>
+                              <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "16rem", borderRadius: "6px" }} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 答案 */}
+                      {showAnswer && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
+                          <div style={{ padding: ".5rem .75rem", borderRadius: "6px", background: "var(--green-bg)", color: "var(--green-text)", fontSize: ".875rem" }}>
+                            答案：<MathText text={q.correct_answer} />
+                            {q.user_answer && (
+                              <span style={{ marginLeft: ".5rem", fontSize: ".75rem", color: "var(--red-text)" }}>
+                                (你答：<MathText text={q.user_answer} />)
+                              </span>
+                            )}
+                          </div>
+                          {q.explanation && (
+                            <div>
+                              <button className="btn" style={{ fontSize: ".78rem" }} onClick={() => toggleSet(shownExplanations, setShownExplanations, q.id)}>
+                                {shownExplanations.has(q.id) ? "隐藏解析" : "显示解析"}
+                              </button>
+                              {shownExplanations.has(q.id) && (
+                                <div style={{ marginTop: ".5rem", padding: ".75rem", borderRadius: "6px", background: "var(--bg-hover)", fontSize: ".85rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                  <MathText text={q.explanation} />
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <Link href="/" style={{ fontSize: ".875rem", color: "var(--text-muted)", textDecoration: "none" }}>← 返回首页</Link>
+    </div>
+  );
+}

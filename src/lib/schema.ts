@@ -105,6 +105,8 @@ export async function initSchema() {
   const migrations: Array<{ sql: string; desc: string }> = [
     { sql: "ALTER TABLE solution_methods ADD COLUMN example_images TEXT", desc: "solution_methods.example_images" },
     { sql: "ALTER TABLE solution_methods ADD COLUMN flowchart_data LONGTEXT", desc: "solution_methods.flowchart_data (结构化流程图 JSON)" },
+    // 错题拼卷：难度字段 1-5（1最易 5最难），默认 3（中等），用于按考研难度比例抽样拼卷
+    { sql: "ALTER TABLE questions ADD COLUMN difficulty INT DEFAULT 3", desc: "questions.difficulty (1-5, 拼卷按考研比例抽样)" },
   ];
   for (const m of migrations) {
     try { await db.execute(m.sql); } catch (e) {
