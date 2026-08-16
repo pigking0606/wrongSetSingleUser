@@ -19,14 +19,6 @@ interface PaperSection {
 }
 interface Paper { sections: PaperSection[]; total: number; totalScore: number; hasEnough: boolean; }
 
-const DIFF_LABELS: Record<number, { text: string; color: string }> = {
-  1: { text: "易", color: "var(--green-text)" },
-  2: { text: "易", color: "var(--green-text)" },
-  3: { text: "中", color: "var(--yellow-text)" },
-  4: { text: "难", color: "var(--red-text)" },
-  5: { text: "难", color: "var(--red-text)" },
-};
-
 export default function ExamPaperPage() {
   const [banks, setBanks] = useState<{ id: number; name: string }[]>([]);
   const [selectedBankIds, setSelectedBankIds] = useState<Set<number>>(new Set());
@@ -149,26 +141,12 @@ export default function ExamPaperPage() {
 
                 {section.questions.map(q => {
                   qNo += 1;
-                  const diff = DIFF_LABELS[q.difficulty] || { text: "中", color: "var(--yellow-text)" };
                   const showAnswer = showAllAnswers;
                   return (
                     <div key={q.id} style={{ borderTop: "1px solid var(--border)", paddingTop: ".75rem", display: "flex", flexDirection: "column", gap: ".6rem" }}>
-                      {/* 题号 + 标签 */}
-                      <div style={{ display: "flex", alignItems: "center", gap: ".4rem", flexWrap: "wrap", fontSize: ".75rem", color: "var(--text-muted)" }}>
-                        <span style={{ fontWeight: 700, fontSize: ".9rem", color: "var(--text)" }}>{qNo}.</span>
-                        {(q.subject_name || q.chapter_name || q.kp_name) && (
-                          <>
-                            {q.subject_name && <span className="tag">{q.subject_name}</span>}
-                            {q.chapter_name && <><span>›</span><span>{q.chapter_name}</span></>}
-                            {q.kp_name && <><span>›</span><span>{q.kp_name}</span></>}
-                          </>
-                        )}
-                        <span className="badge" style={{ background: "var(--tag-bg)", color: "var(--tag-text)" }}>{q.question_type}</span>
-                        <span className="badge" style={{ color: diff.color }}>难度{diff.text}</span>
-                      </div>
-
-                      {/* 题干 */}
+                      {/* 题干（题号内联，符合考研试卷排版） */}
                       <div style={{ fontSize: ".95rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                        <span style={{ fontWeight: 600, marginRight: ".25rem" }}>{qNo}.</span>
                         <MathText text={q.ocr_text} splitOptions />
                       </div>
 

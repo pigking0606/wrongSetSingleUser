@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { analyzeImageTwoStep, autoWrapMathDelimiters, AiAnalysisResult } from "@/lib/ai";
+import { analyzeImageTwoStep, autoWrapMathDelimiters, normalizeDifficulty, AiAnalysisResult } from "@/lib/ai";
 import { queryOne, queryAll, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
 
@@ -78,14 +78,15 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     const safeExpl = explanation || "";
     const safeSolutions = JSON.stringify(solutions || []);
     const safeType = result.questionType || "single_choice";
+    const difficulty = normalizeDifficulty(result.difficulty);
 
     // 第二步失败但第一步成功：保留 OCR 入库，标记 error_reason 供前端触发重解析
     // 第一步+第二步都成功：正常入库
     if (result.error_reason) {
       console.warn("[performAnalysis] Step 2 failed for question", questionId, "— saving OCR only:", result.error_reason);
       await runAndSave(
-        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='error', error_reason=? WHERE id=?`,
-        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, result.error_reason.slice(0, 200), questionId]
+        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='error', error_reason=? WHERE id=?`,
+        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, difficulty, result.error_reason.slice(0, 200), questionId]
       );
     } else {
       // OCR 文本为空但答案/解析非空：说明 OCR 步骤异常（含图题目可能 JSON 解析失败）
@@ -94,8 +95,8 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
         console.warn("[performAnalysis] question", questionId, "— OCR text is empty but answer/explanation exist (likely image-heavy question OCR failed)");
       }
       await runAndSave(
-        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
-        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, questionId]
+        `UPDATE questions SET chapter_id=?, ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='ready', error_reason=NULL WHERE id=?`,
+        [cls.knowledge_point_id, safeOcr, safeType, safeAnswer, safeExpl, safeSolutions, difficulty, questionId]
       );
     }
 

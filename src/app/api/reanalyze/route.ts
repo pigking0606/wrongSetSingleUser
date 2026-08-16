@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
-import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI } from "@/lib/ai";
+import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI, normalizeDifficulty } from "@/lib/ai";
 import { enqueue } from "@/lib/analysis-queue";
 import { logAiResp } from "@/lib/ai-resp-log";
 
@@ -31,8 +31,14 @@ const REANALYZE_PROMPT = `你是考研命题专家。请重新分析以下题目
   "correctAnswer": "正确答案",
   "explanation": "解析（100-200字）",
   "solutions": [{"name":"解法（含适用场景/技巧标注）","steps":["..."],"answer":"..."}],
-  "confidence": 0.95
+  "confidence": 0.95,
+  "difficulty": 3
 }
+
+【难度评估】
+- difficulty：整数 1-5，按考研标准评估本题难度：
+  1=送分题 2=基础题 3=中等题 4=难题 5=压轴题
+  考研试卷难度比例参考：易(1-2)约30%、中(3)约50%、难(4-5)约20%
 
 【考研数学适配性要求（数学题必须遵守）】
 - 解法必须符合考研数学大纲范围，禁止使用超纲方法（如数学二不考概率统计、级数等内容）
@@ -75,10 +81,11 @@ const REANALYZE_ANSWER_PROMPT = `你是考研命题专家。请根据已有题�
   "correctAnswer": "正确答案",
   "explanation": "解析（100-200字）",
   "solutions": [{"name":"解法（含适用场景/技巧标注）","steps":["..."],"answer":"..."}],
-  "confidence": 0.95
+  "confidence": 0.95,
+  "difficulty": 3
 }
 
-注意：不要输出ocrText字段，只更新correctAnswer、explanation和solutions。
+注意：不要输出ocrText字段，只更新correctAnswer、explanation和solutions和difficulty。
 
 【考研数学适配性要求（数学题必须遵守）】
 - 解法必须符合考研数学大纲范围，禁止使用超纲方法
@@ -242,15 +249,16 @@ async function processReanalyze(
     }
 
     // Save to DB first (before risky Layer 2), so we don't lose the AI output
+    const difficulty = normalizeDifficulty(result.difficulty);
     if (answerOnly) {
       await runAndSave(
-        `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
-        [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
+        `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='ready', error_reason=NULL WHERE id=?`,
+        [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
       );
     } else {
       await runAndSave(
-        `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, status='ready', error_reason=NULL WHERE id=?`,
-        [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
+        `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='ready', error_reason=NULL WHERE id=?`,
+        [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
       );
     }
 
@@ -307,13 +315,13 @@ async function processReanalyze(
       // Re-save with fixed LaTeX
       if (answerOnly) {
         await runAndSave(
-          `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=? WHERE id=?`,
-          [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
+          `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=?, difficulty=? WHERE id=?`,
+          [result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
         );
       } else {
         await runAndSave(
-          `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=? WHERE id=?`,
-          [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), questionId]
+          `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=? WHERE id=?`,
+          [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
         );
       }
     } catch { /* Layer 2 failed — DB already saved with raw result, that's fine */ }

@@ -15,11 +15,19 @@ export interface AiAnalysisResult {
   }>;
   confidence: number;
   error_reason?: string;
+  difficulty?: number;
 }
 
 export class AiTimeoutError extends Error { name = "AiTimeoutError"; }
 export class AiApiError extends Error { name = "AiApiError"; constructor(msg: string, public status: number) { super(msg); } }
 export class AiParseError extends Error { name = "AiParseError"; constructor(msg: string, public rawText: string) { super(msg); } }
+
+// 难度规范化：AI 可能输出 1-5 之外的字符串/越界值，统一收敛到 1-5 整数，非法值默认 3
+export function normalizeDifficulty(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return 3;
+  return Math.min(5, Math.max(1, Math.round(n)));
+}
 
 // ---------------------------------------------------------------------------
 // JSON parsing helpers
@@ -1558,6 +1566,11 @@ const ANSWER_EXPLAIN_PROMPT = `你是考研命题专家。基于已 OCR 的题�
 - correctAnswer：只给出该题的正确答案
 - explanation：100-200 字解析，包含 ①关键知识点 ②分步推导 ③易错点 ④核心题型与通用套路
 - solutions：1-2 种解法，每种含 name（含适用场景/技巧标注）/ steps[] / answer
+- difficulty：整数 1-5，按考研标准评估本题难度：
+  1=送分题（基础概念直接套用） 2=基础题（单一知识点常规计算）
+  3=中等题（需两步以上推导或综合2个知识点） 4=难题（综合3个以上知识点/计算量大/需技巧）
+  5=压轴题（需较强技巧与综合能力，多为证明题或复杂综合题）
+  考研试卷难度比例参考：易(1-2)约30%、中(3)约50%、难(4-5)约20%，评估时贴合该分布
 
 ## 数学公式规范
 - 必须统一使用 $...$ 作为行内公式分隔符，禁止使用 \\( ... \\) 或 \\[ ... \\]
@@ -1570,12 +1583,12 @@ const ANSWER_EXPLAIN_PROMPT = `你是考研命题专家。基于已 OCR 的题�
 - 上标下标必须用花括号：x^{2} 而非 x^2，x_{1} 而非 x_1
 
 输出纯 JSON：
-{"correctAnswer":"","explanation":"","solutions":[{"name":"","steps":[],"answer":""}],"confidence":0.95}`;
+{"correctAnswer":"","explanation":"","solutions":[{"name":"","steps":[],"answer":""}],"confidence":0.95,"difficulty":3}`;
 
 async function analyzeAnswerAndExplain(
   ocrText: string,
   userAnswer?: string,
-): Promise<{ correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number }> {
+): Promise<{ correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number; difficulty: number }> {
   const apiKey = await getTextApiKey();
   if (!apiKey) throw new AiApiError("text_key / vision_key 都未配置，请在设置页面填写", 500);
 
@@ -1645,6 +1658,7 @@ async function analyzeAnswerAndExplain(
       explanation: parsed.explanation || "",
       solutions: Array.isArray(parsed.solutions) ? parsed.solutions : [],
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.8,
+      difficulty: normalizeDifficulty(parsed.difficulty),
     };
   } catch (err) {
     if (err instanceof AiApiError || err instanceof AiParseError) throw err;
@@ -1678,13 +1692,13 @@ export async function analyzeImageTwoStep(
   // Step 2: Answer + explain (text model, NO image — eliminates "看图猜答案")
   // 第二步失败 = 只丢答案/解析，OCR 和分类仍可用，标记 error_reason 供前端触发重解析
   console.log("[analyzeImageTwoStep] Step 2: Answer + explain (text-only)");
-  let answerResult: { correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number };
+  let answerResult: { correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number; difficulty: number };
   let step2Error: string | null = null;
   try {
     answerResult = await analyzeAnswerAndExplain(ocrResult.ocrText, userAnswer);
   } catch (err) {
     console.warn("[analyzeImageTwoStep] Step 2 failed, saving OCR only:", err);
-    answerResult = { correctAnswer: "", explanation: "", solutions: [], confidence: 0 };
+    answerResult = { correctAnswer: "", explanation: "", solutions: [], confidence: 0, difficulty: 3 };
     step2Error = err instanceof Error ? err.message : "答案推导步骤失败";
   }
 
@@ -1697,6 +1711,7 @@ export async function analyzeImageTwoStep(
     explanation: answerResult.explanation,
     solutions: answerResult.solutions,
     confidence: answerResult.confidence,
+    difficulty: answerResult.difficulty,
     error_reason: step2Error || undefined,
   };
 
