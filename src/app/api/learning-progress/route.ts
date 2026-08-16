@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (content === undefined) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
-  runAndSave(
+  await runAndSave(
     "UPDATE learning_progress SET content=?, updated_at=NOW() WHERE id=1",
     [content || ""]
   );

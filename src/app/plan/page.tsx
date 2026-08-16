@@ -440,9 +440,11 @@ export default function PlanPage() {
   };
 
   const saveProgress = async (content: string) => {
-    const res = await fetch("/api/learning-progress", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
-    if (res.ok) { setProgress(content); setProgressUpdated(new Date().toLocaleString()); toast("进度已保存"); }
-    else toast("保存失败");
+    try {
+      const res = await fetch("/api/learning-progress", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
+      if (res.ok) { setProgress(content); setProgressUpdated(new Date().toLocaleString()); toast("进度已保存", "success"); }
+      else { const d = await res.json().catch(() => ({})); toast(d.error || "进度保存失败", "error", 5000); }
+    } catch { toast("进度保存失败（网络错误）", "error", 5000); }
   };
 
   const aiOptimize = async () => {
@@ -450,10 +452,11 @@ export default function PlanPage() {
     setOptimizing(true);
     try {
       const res = await fetch("/api/learning-progress/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: progress, mode: "optimize" }) });
-      const data = await res.json();
-      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 优化完成，满意后请点击保存进度"); }
-      else { toast("AI 优化完成，内容未变化"); }
-    } catch { toast("AI 优化失败"); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || "AI 优化失败", "error", 5000); return; }
+      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 优化完成，满意后请点击保存进度", "success", 5000); }
+      else { toast("AI 优化完成，内容未变化", "success", 5000); }
+    } catch { toast("AI 优化失败（网络错误）", "error", 5000); }
     setOptimizing(false);
   };
 
@@ -461,10 +464,11 @@ export default function PlanPage() {
     setOptimizing(true);
     try {
       const res = await fetch("/api/learning-progress/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: progress, mode: "update", summaryDate: curDate }) });
-      const data = await res.json();
-      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 已根据今日小结更新总进度"); }
-      else { toast("AI 更新完成，内容未变化"); }
-    } catch { toast("AI 更新失败"); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(data.error || "AI 更新失败", "error", 5000); return; }
+      if (data.content && data.content !== progress) { setProgress(data.content); toast("AI 已根据今日小结更新总进度", "success", 5000); }
+      else { toast("AI 更新完成，内容未变化", "success", 5000); }
+    } catch { toast("AI 更新失败（网络错误）", "error", 5000); }
     setOptimizing(false);
   };
 

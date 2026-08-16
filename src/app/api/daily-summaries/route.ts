@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   if (!content && content !== "") {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
-  runAndSave(
+  await runAndSave(
     "INSERT INTO daily_summaries (summary_date, content) VALUES (?,?) ON DUPLICATE KEY UPDATE content=VALUES(content)",
     [date, content]
   );

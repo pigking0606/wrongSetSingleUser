@@ -88,7 +88,7 @@ ${content || "暂无"}
 
   try {
     const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 20000);
+    setTimeout(() => ctrl.abort(), 120000); // 120s：思考型模型需要更长推理时间
     const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
     const resp = await fetch(await getTextApiUrl(), {
       method: "POST",
