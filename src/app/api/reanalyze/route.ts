@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
-import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI, normalizeDifficulty } from "@/lib/ai";
+import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI, normalizeDifficulty, inferQuestionType } from "@/lib/ai";
 import { enqueue } from "@/lib/analysis-queue";
 import { logAiResp } from "@/lib/ai-resp-log";
 
@@ -250,6 +250,8 @@ async function processReanalyze(
 
     // Save to DB first (before risky Layer 2), so we don't lose the AI output
     const difficulty = normalizeDifficulty(result.difficulty);
+    // 后端兜底题型判定：选择题必须有选项，填空/综合/解答相互纠错
+    const inferredType = inferQuestionType(result.ocrText || "", result.questionType || "single_choice");
     if (answerOnly) {
       await runAndSave(
         `UPDATE questions SET correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='ready', error_reason=NULL WHERE id=?`,
@@ -258,7 +260,7 @@ async function processReanalyze(
     } else {
       await runAndSave(
         `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=?, status='ready', error_reason=NULL WHERE id=?`,
-        [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
+        [result.ocrText, inferredType, result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
       );
     }
 
@@ -321,7 +323,7 @@ async function processReanalyze(
       } else {
         await runAndSave(
           `UPDATE questions SET ocr_text=?, question_type=?, correct_answer=?, explanation=?, ai_solutions=?, difficulty=? WHERE id=?`,
-          [result.ocrText, result.questionType || "single_choice", result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
+          [result.ocrText, inferredType, result.correctAnswer, result.explanation, JSON.stringify(result.solutions || []), difficulty, questionId]
         );
       }
     } catch { /* Layer 2 failed — DB already saved with raw result, that's fine */ }

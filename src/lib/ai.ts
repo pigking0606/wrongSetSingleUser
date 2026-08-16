@@ -29,6 +29,44 @@ export function normalizeDifficulty(raw: unknown): number {
   return Math.min(5, Math.max(1, Math.round(n)));
 }
 
+// 基于 OCR 文本的后端兜底题型判定（防止 AI 判断失误）
+// 核心规则：选择题必须有选项；无选项/无填空留白的计算证明题归为 short_answer
+const CHOICE_OPTION_RE = /(?:^|\n)\s*[A-F][\.、\)）]\s*\S/;
+const CHOICE_OPTION_INLINE_RE = /\s[ABCDEF][\.、\)）]\s*/;
+const FILL_BLANK_RE = /[_＿][_＿]{1,}|[（(]\s*[）)]|[\[【]\s*[\]】]|\b__\b|（\s*）|\(\s*\)/;
+
+export function inferQuestionType(ocrText: string, aiType: string): "single_choice" | "multiple_choice" | "true_false" | "fill_blank" | "short_answer" | "comprehensive" {
+  const text = ocrText || "";
+  const hasChoiceOption = CHOICE_OPTION_RE.test("\n" + text) || CHOICE_OPTION_INLINE_RE.test(text);
+  const hasFillBlank = FILL_BLANK_RE.test(text);
+  // 多问标记：第(1)问/第1问/第一问，或题干中出现 2 个及以上 "(1) (2) (3)" 式序号（综合题强信号）
+  const hasMultiQuestion = /第[（(]?\s*[一二三四五六123456]\s*[）)]?\s*问/.test(text)
+    || ((text.match(/[（(]\s*[1-9]\s*[）)]/g) || []).length >= 2);
+
+  // 选择题：必须真的有选项，否则降级（填空题优先，其次综合/解答）
+  if (aiType === "single_choice" || aiType === "multiple_choice") {
+    if (!hasChoiceOption) {
+      if (hasFillBlank) return "fill_blank";
+      if (hasMultiQuestion) return "comprehensive";
+      return "short_answer";
+    }
+    return aiType === "multiple_choice" ? "multiple_choice" : "single_choice";
+  }
+
+  // 非选择题：填空/综合/解答相互纠错
+  if (aiType === "fill_blank" || aiType === "short_answer" || aiType === "comprehensive") {
+    // 有明显填空留白（下划线/括号留白）→ 填空
+    if (hasFillBlank) return "fill_blank";
+    // 无留白、又无多问标记的综合题 → 实为普通解答题
+    if (aiType === "comprehensive" && !hasMultiQuestion) return "short_answer";
+    // 有多个小问标记的填空/解答题 → 实为综合题
+    if ((aiType === "short_answer" || aiType === "fill_blank") && hasMultiQuestion) return "comprehensive";
+    return aiType as "fill_blank" | "short_answer" | "comprehensive";
+  }
+
+  return (aiType || "short_answer") as "single_choice" | "multiple_choice" | "true_false" | "fill_blank" | "short_answer" | "comprehensive";
+}
+
 // ---------------------------------------------------------------------------
 // JSON parsing helpers
 // ---------------------------------------------------------------------------
@@ -1291,6 +1329,18 @@ ${tree}
 4. **如果图片主要是下一题的内容**（当前题目文字被截断或不完整，图片主体是下一题），同样输出"[图片非当前题目，跳过解析]"
 5. 判断依据：题号是否连贯、题干是否完整、选项是否属于当前题目
 
+## 题型判断规则（questionType，必须严格遵守，违反为严重错误）
+1. **single_choice / multiple_choice（选择题）——必须同时满足"题干 + 至少 2 个选项"**：
+   - 仅当题目明确带有选项列表（如 A. xxx / B. xxx / C. xxx / D. xxx，或 A、B、C、D 等）才能判断为选择题
+   - **题目只有题干、没有选项（或选项缺失/被截断）→ 禁止判断为选择题**
+   - 有选项且要求"多选/不定项/至少选两个" → "multiple_choice"；否则默认 "single_choice"
+2. **true_false（判断题）**：题干为陈述句，作答方式是判断"正确/错误"、"对/错"、"√/×"，且无选项、无计算
+3. **fill_blank（填空题）**：题干中有明显留白待填（如下划线"____"、横线"____"、括号"(    )"、方框"[ ]"、连续空格），或题干文字中嵌有"__"填空位置
+4. **short_answer（解答/简答题）**：题干要求计算、推导、求解、证明、写出过程，无明显填空留白，也不是选择题。**无选项、无填空留白的一般计算/证明题 → "short_answer"**
+5. **comprehensive（综合题）**：多问综合题（含第(1)问/第(2)问/第(3)问等）或跨多个知识点的大题
+6. **填空 vs 综合的区分**：题干含填空留白（下划线/括号留白）→ fill_blank；题干是多问/长文字的综合大题 → comprehensive；其余计算/证明/简答 → short_answer
+7. **拿不准时**：选择题必须有选项这一条是硬性底线，其它类型模糊时倾向 short_answer，不要误判为选择题
+
 ## 分类规则（必须严格遵守，违反为严重错误）
 
 ### 第一步：确定 subject（科目级，这一步通常可靠）
@@ -1530,9 +1580,16 @@ async function analyzeOcrAndClassify(
 
     ocrText = sanitizeOcrText(ocrText);
 
+    // 后端兜底题型判定：AI 的判断经常失误（无选项判选择题、填空/综合混淆），
+    // 这里基于净化后的 OCR 文本做硬性校正（选择题必须有选项等）
+    const inferredType = inferQuestionType(ocrText, parsed.questionType || "single_choice");
+    if (inferredType !== (parsed.questionType || "single_choice")) {
+      console.warn(`[analyzeOcrAndClassify] 题型校正: AI=${parsed.questionType || "single_choice"} -> ${inferredType}`);
+    }
+
     return {
       ocrText,
-      questionType: parsed.questionType || "single_choice",
+      questionType: inferredType,
       classification: parsed.classification || { subject: "", chapter: "", knowledgePoint: "" },
     };
   } catch (err) {
