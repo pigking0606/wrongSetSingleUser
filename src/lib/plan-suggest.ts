@@ -172,13 +172,15 @@ export async function generateSuggestionsInBackground(batchId: string, targetDat
     ? allTitles.map(t => `${t.title}（出现${t.cnt}次）`).join("\n")
     : "";
 
+  // 可用章节 id 对照：供 AI 制定任务时准确引用真实存在的章节/知识点
   const chapterList = chapters
     .filter(c => c.level >= 2)
     .map(c => `${c.id}:${c.name}`)
     .join(", ");
 
   // 优化后的 prompt：增加错题统计、学习时长、复习进度，强调推荐要切合实际
-  const prompt = `你是考研备考规划助手。请根据学生的学习数据（含错题统计、学习时长、复习进度），为今天（${targetDate}）推荐 3-5 个具体可执行的任务。
+  // 目标学习时长 6-8 小时 → 推荐 8-12 个任务、更高难度
+  const prompt = `你是考研备考规划助手。请根据学生的学习数据（含错题统计、学习时长、复习进度），为今天（${targetDate}）推荐 8-12 个具体可执行的任务，总计学习时长约 6-8 小时。
 
 【今日尚未完成的任务 — 优先继续推进】
 ${todayIncompleteText || "今天所有任务都已完成"}
@@ -198,7 +200,7 @@ ${patternText || "暂无"}
 【章节内容分布（学科 → 章 → 知识点 + 题目数/错题数/错误率/复习进度）】
 ${chapterContentText}
 
-【可用章节 id 对照（用于 chapter_id 字段）】
+【可用章节 id 对照（供制定任务时参考）】
 ${chapterList}
 
 推荐原则（务必遵循，否则推荐不切实际）：
@@ -208,15 +210,15 @@ ${chapterList}
 4. 如果近期某章节连续 3+ 天出现且完成率低，说明难度大，建议拆分为更小的子任务
 5. 任务标题必须具体到知识点或题号，禁止"复习数学""做题"等空洞标题
 6. 标题格式参考：「做题：高数第三章中值定理 660题」「复习：线代行列式错题5道」「学习：数据结构二叉树遍历」
-7. 根据近 7 天学习时长合理控制任务量：如果近 7 天日均 < 2h，每项任务预估 30-60 分钟；日均 > 4h，可安排 60-90 分钟的任务
+7. 目标每天学习 6-8 小时：任务数量 8-12 个，每项任务预估 40-60 分钟（高难度/做题任务可 60-90 分钟），全部任务合计约 6-8 小时。若近 7 天日均学习不足 2 小时，可适当减少到 5-7 个任务（总量 4-5 小时）作为过渡，但要逐步向 6-8 小时靠拢
 8. 学习闭环：如果近期都是"学习/看课"类任务，今天必须安排"做题"或"错题复习"任务；如果近期都是"做题"，今天安排一次"复盘/整理笔记"任务
-9. 每个任务指定 chapter_id（优先选知识点级 level 3，其次章节级 level 2；从章节列表中选最匹配的，找不到填 null）
-10. 每个任务建议预估 difficulty（1简单-5困难），参照该章节历史难度
+9. 任务难度可以更高：多数任务 difficulty 给 3-5（中等偏难），依据章节历史难度和用户目标学习时长，不要整体都给低难度
+10. 严格基于用户当前进度：任务内容必须来自【章节内容分布】【近期小结】【近期任务】中真实存在的学科/章节/知识点，且与用户最近的进度衔接（例如用户最近在学线性代数，就不要推荐还没接触的高数积分专题）；禁止凭空编造用户没学过的内容
 
-JSON格式：
+JSON格式（chapter_id 一律填 null，系统统一置空，不按章节分类）：
 {
   "tasks": [
-    {"title": "具体任务描述", "chapter_id": 123, "description": "简短说明推荐理由", "difficulty": 3}
+    {"title": "具体任务描述", "chapter_id": null, "description": "简短说明推荐理由", "difficulty": 4}
   ],
   "reason": "简短说明今天推荐的整体策略"
 }`;
@@ -309,7 +311,8 @@ JSON格式：
     const t = tasks[i];
     await runAndSave(
       "INSERT INTO ai_suggestions (batch_id, task_date, title, chapter_id, description, difficulty, sort_order, status) VALUES (?,?,?,?,?,?,?,'ready')",
-      [batchId, targetDate, String(t.title).slice(0, 500), t.chapter_id ?? null, t.description || "", t.difficulty || 3, i]
+      // chapter_id 一律置 null：取消 AI 对任务的章节分类，避免章节对应错误
+      [batchId, targetDate, String(t.title).slice(0, 500), null, t.description || "", t.difficulty || 3, i]
     );
   }
   await runAndSave(
