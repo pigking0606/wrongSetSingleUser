@@ -74,10 +74,15 @@ export default function SettingsPage() {
   };
 
   // 测试连接：用当前表单填写的值（不读数据库），验证 key/url/model 是否可用
-  const testConn = async (kind: "vision" | "text") => {
-    const key = (kind === "vision" ? visionKey : textKey).trim();
-    const url = (kind === "vision" ? visionUrl : textUrl).trim();
-    const model = (kind === "vision" ? visionModel : textModel).trim();
+  const testConn = async (kind: "vision" | "text" | "dashscope") => {
+    const conf = kind === "vision"
+      ? { key: visionKey, url: visionUrl, model: visionModel }
+      : kind === "text"
+        ? { key: textKey, url: textUrl, model: textModel }
+        : { key: dashscopeKey, url: dashscopeUrl, model: dashscopeModel };
+    const key = conf.key.trim();
+    const url = conf.url.trim();
+    const model = conf.model.trim();
     if (!key) { modal.alert("无法测试", "请先填写 API Key"); return; }
     if (!model) { modal.alert("无法测试", "请先填写模型名"); return; }
 
@@ -221,7 +226,8 @@ export default function SettingsPage() {
             <IconSparkle size={18} /> 阿里云 DashScope 备用文本通道</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
           <p style={{ fontSize: ".75rem", color: "var(--text-muted)", margin: 0 }}>
-            独立配置，不影响上方主文本通道。当主通道触发限流（429）时自动切换到本通道重试；配置模型后即启用。
+            独立配置，不影响上方主文本通道。主通道与备用通道每 10 分钟自动轮换优先调用顺序，分摊负载；
+            任一通道失败（429/401/网络错误）时自动切换重试。配置模型后即启用。
           </p>
           <div>
             <label style={{ fontSize: ".8rem", display: "block", marginBottom: ".2rem" }}>API Key</label>
@@ -240,6 +246,32 @@ export default function SettingsPage() {
                 placeholder="如 qwen-plus（留空则禁用备用通道）" style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
           </div>
+          {authed && <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap" }}>
+            <button className="btn" onClick={() => testConn("dashscope")} disabled={!!testing.dashscope}
+              style={{ fontSize: ".8rem", padding: ".35rem .8rem" }}>
+              {testing.dashscope
+                ? <span style={{ display: "flex", alignItems: "center", gap: ".25rem" }}><IconRefresh size={13} /> 测试中...</span>
+                : "测试连接"}
+            </button>
+            {testResult.dashscope && (
+              <span style={{ fontSize: ".75rem", display: "flex", alignItems: "center", gap: ".25rem",
+                color: testResult.dashscope.ok ? "var(--green-text)" : "var(--red-text)" }}>
+                {testResult.dashscope.ok ? <IconCheck size={13} /> : <IconX size={13} />}
+                <span>
+                  {testResult.dashscope.ok
+                    ? testResult.dashscope.message
+                    : testResult.dashscope.error}
+                  {typeof testResult.dashscope.elapsed === "number" && ` · ${testResult.dashscope.elapsed}ms`}
+                </span>
+              </span>
+            )}
+          </div>}
+          {testResult.dashscope && !testResult.dashscope.ok && testResult.dashscope.detail && (
+            <pre style={{ fontSize: ".7rem", color: "var(--text-muted)", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+              background: "var(--bg-hover)", padding: ".4rem .5rem", borderRadius: ".25rem", maxHeight: "8rem", overflow: "auto" }}>
+              {testResult.dashscope.detail}
+            </pre>
+          )}
         </div>
       </div>
 

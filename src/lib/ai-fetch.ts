@@ -11,6 +11,7 @@ export interface AiEndpoint {
   url: string;   // 完整 /chat/completions 地址
   key: string;   // API Key
   model: string; // 模型名（body.model 随 endpoint 切换）
+  group?: number; // 通道分组：0=主通道，1=备用通道（缺省 0）
 }
 
 export interface AiFetchResult {
@@ -22,9 +23,28 @@ export interface AiFetchResult {
 // 相邻请求最小间隔（毫秒）：进程内全局节流，降低账户 RPS 峰值
 const DEFAULT_MIN_INTERVAL_MS = 350;
 
+// 通道主动轮换周期（毫秒）：
+// 一段时间主通道优先、一段时间备用通道优先，主动分摊负载，
+// 避免单一 key 持续打满触发账户级 429，也让主/备 key 交替得到休息。
+// 任一通道失败（429/401/403/网络错误）时仍会立即切到另一通道重试。
+const GROUP_SWITCH_MS = 10 * 60 * 1000; // 10 分钟
+
 let lastAiCallAt = 0;
 let inflight = 0;
 let inflightWaiters: Array<() => void> = [];
+
+// 当前激活通道组（0=主，1=备用）及其切换时间
+let activeGroup = 0;
+let lastGroupSwitchAt = Date.now();
+
+// 时间窗到达则切换激活通道（同步判断，天然无竞态）
+function maybeSwitchGroup() {
+  const now = Date.now();
+  if (now - lastGroupSwitchAt >= GROUP_SWITCH_MS) {
+    activeGroup = activeGroup === 0 ? 1 : 0;
+    lastGroupSwitchAt = now;
+  }
+}
 
 export function sleep(ms: number) {
   return new Promise<void>(r => setTimeout(r, ms));
@@ -79,12 +99,23 @@ export async function aiFetch(opts: AiFetchOptions): Promise<AiFetchResult> {
   const maxConcurrency = opts.maxConcurrency ?? 4;
   const minIntervalMs = opts.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
 
+  // 按通道分组排序尝试顺序：当前激活通道优先，另一通道兜底（组内保持配置顺序）
+  // 这样同一时间窗内请求优先走当前激活通道，通道失败时再落到另一通道
+  maybeSwitchGroup();
+  const otherGroup = activeGroup === 0 ? 1 : 0;
+  const ordered: AiEndpoint[] = [];
+  for (const g of [activeGroup, otherGroup]) {
+    for (const ep of endpoints) if ((ep.group ?? 0) === g) ordered.push(ep);
+  }
+  // 兼容未被 0/1 分组覆盖的异常 endpoint：回退为原始顺序
+  const attemptPool = ordered.length === endpoints.length ? ordered : endpoints;
+
   await acquireConcurrency(maxConcurrency);
   try {
     let lastErr: Error | null = null;
     let lastStatus = 0;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const ep = endpoints[attempt % endpoints.length];
+      const ep = attemptPool[attempt % attemptPool.length];
       await acquireRateSlot(minIntervalMs);
       try {
         const resp = await fetch(ep.url, {

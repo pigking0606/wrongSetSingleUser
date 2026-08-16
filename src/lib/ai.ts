@@ -230,13 +230,14 @@ export async function getTextEndpoints(model: string): Promise<AiEndpoint[]> {
   const textKeys = splitApiKeys(await loadSetting("text_key", "DEEPSEEK_API_KEY"));
   const textUrl = await getApiUrl(model, "text_url");
   for (const key of textKeys) {
-    endpoints.push({ url: textUrl, key, model });
+    endpoints.push({ url: textUrl, key, model, group: 0 });
   }
   const dashModel = await loadSetting("dashscope_model");
   if (dashModel) {
     const dashKey = (await loadSetting("dashscope_key")) || (await loadSetting("vision_key", "DASHSCOPE_API_KEY"));
     if (dashKey && !textKeys.includes(dashKey)) {
-      endpoints.push({ url: (await getDashscopeBaseUrl()) + "/chat/completions", key: dashKey, model: dashModel });
+      // 备用通道打 group=1：aiFetch 按时间窗在 0/1 之间主动轮换优先，失败自动切换
+      endpoints.push({ url: (await getDashscopeBaseUrl()) + "/chat/completions", key: dashKey, model: dashModel, group: 1 });
     }
   }
   return endpoints;

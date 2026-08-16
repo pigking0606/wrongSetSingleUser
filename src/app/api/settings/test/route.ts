@@ -6,7 +6,7 @@ import { logAiResp } from "@/lib/ai-resp-log";
 // 不读数据库 —— 测的是"如果保存了能不能用"，避免"保存后才发现 key 错了"的循环
 export async function POST(req: NextRequest) {
   const { type, key, url, model } = await req.json() as {
-    type: "vision" | "text";
+    type: "vision" | "text" | "dashscope";
     key: string;
     url: string;
     model: string;
@@ -19,10 +19,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "模型名未填写" });
   }
 
-  // 拼接 URL：用户填了就用用户的，否则按 model 名称走默认
+  // 拼接 URL：用户填了就用用户的，否则按 type/model 名称走默认
   let baseUrl = (url || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
-    if (model.startsWith("deepseek")) {
+    if (type === "dashscope") {
+      baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    } else if (model.startsWith("deepseek")) {
       baseUrl = "https://api.deepseek.com/v1";
     } else {
       baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
