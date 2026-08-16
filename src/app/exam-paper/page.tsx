@@ -26,6 +26,7 @@ export default function ExamPaperPage() {
   const [subjectId, setSubjectId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [paper, setPaper] = useState<Paper | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showAllAnswers, setShowAllAnswers] = useState(false);
   const [shownImages, setShownImages] = useState<Set<number>>(new Set());
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
@@ -52,12 +53,19 @@ export default function ExamPaperPage() {
       if (subjectId) params.set("subject_id", String(subjectId));
       const res = await fetch(`/api/exam-paper?${params.toString()}`);
       const data = await res.json();
+      if (!res.ok) {
+        setPaper(null);
+        setError(data?.error || "生成失败，请重试");
+        return;
+      }
+      setError(null);
       setPaper(data);
       setShowAllAnswers(false);
       setShownImages(new Set());
       setShownExplanations(new Set());
     } catch {
       setPaper(null);
+      setError("网络错误，生成失败");
     } finally {
       setLoading(false);
     }
@@ -93,12 +101,13 @@ export default function ExamPaperPage() {
           ))}
         </div>
         <select value={subjectId ?? ""} onChange={e => setSubjectId(e.target.value ? parseInt(e.target.value) : null)} style={{ fontSize: ".8rem" }}>
-          <option value="">全部科目</option>
+          <option value="" disabled>请选择科目（必选）</option>
           {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={generate} disabled={loading}>
+        <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={generate} disabled={loading || !subjectId} title={!subjectId ? "请先选择科目" : undefined}>
           {loading ? "生成中..." : "生成试卷"}
         </button>
+        {!subjectId && <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>拼卷仅支持单科目，请先选择科目</span>}
         {paper && paper.total > 0 && (
           <button className="btn" style={{ fontSize: ".85rem" }} onClick={() => setShowAllAnswers(a => !a)}>
             {showAllAnswers ? "隐藏全部答案" : "显示全部答案"}
@@ -108,6 +117,10 @@ export default function ExamPaperPage() {
 
       {loading ? (
         <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>正在从错题中选样拼卷...</p>
+      ) : error ? (
+        <div className="card" style={{ textAlign: "center", padding: "2rem", color: "var(--red-text)" }}>
+          {error}
+        </div>
       ) : !paper || paper.total === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: "2rem" }}>
           <p style={{ color: "var(--text-muted)", marginBottom: ".75rem" }}>当前范围内没有可用的错题，请先上传并作答错题</p>

@@ -110,6 +110,10 @@ export async function GET(req: NextRequest) {
 
   const conditions: string[] = [];
   const params: (string | number)[] = [];
+  // 拼卷仅支持单科目：必须选择科目，禁止跨科目补全（未选科目直接拒绝）
+  if (!subjectId) {
+    return NextResponse.json({ error: "请先选择科目（拼卷仅支持单科目生成）" }, { status: 400 });
+  }
   // 错题判定：用户作答且与正确答案不同，或复习记录中标记为错（score<=1）
   conditions.push(`(q.user_answer IS NOT NULL AND q.user_answer != q.correct_answer)
     OR EXISTS (SELECT 1 FROM review_records rr WHERE rr.question_id = q.id AND rr.score <= 1)`);
