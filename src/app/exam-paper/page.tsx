@@ -43,6 +43,7 @@ export default function ExamPaperPage() {
     });
   };
 
+  // 首次进入不自动生成，由用户点击"生成试卷"按钮触发
   const generate = useCallback(async () => {
     setLoading(true);
     try {
@@ -61,9 +62,6 @@ export default function ExamPaperPage() {
       setLoading(false);
     }
   }, [selectedBankIds, subjectId]);
-
-  // 首次进入自动生成一份
-  useEffect(() => { generate(); }, [generate]);
 
   const toggleSet = (set: Set<number>, setter: (s: Set<number>) => void, id: number) => {
     const next = new Set(set);

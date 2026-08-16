@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import "./globals.css";
 import "katex/dist/katex.min.css";
-import { IconSettings, IconFileText } from "@/lib/icons";
+import { IconSettings } from "@/lib/icons";
 import { useGlobalTimer } from "@/lib/study-timer";
 import { ModalProvider, useModal } from "@/lib/modal";
 
@@ -71,9 +71,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
               <Link href="/" className="font-semibold text-sm tracking-wide no-underline" style={{ color: "var(--text)" }}>
                 错题复习
-              </Link>
-              <Link href="/exam-paper" title="错题拼卷" style={{ color: "var(--text-muted)", textDecoration: "none", display: "flex" }}>
-                <IconFileText size={16} />
               </Link>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: ".5rem" }}>
