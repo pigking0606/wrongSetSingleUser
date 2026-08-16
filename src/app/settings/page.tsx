@@ -18,6 +18,10 @@ export default function SettingsPage() {
   const [textKey, setTextKey] = useState("");
   const [textModel, setTextModel] = useState("");
   const [textUrl, setTextUrl] = useState("");
+  // 阿里云 DashScope 备用文本通道（独立配置，限流时自动切换，不影响主通道）
+  const [dashscopeKey, setDashscopeKey] = useState("");
+  const [dashscopeModel, setDashscopeModel] = useState("");
+  const [dashscopeUrl, setDashscopeUrl] = useState("");
   // 自动解析时段设置
   const [schedEnabled, setSchedEnabled] = useState(false);
   const [schedWindows, setSchedWindows] = useState<Array<{ start: string; end: string }>>([]);
@@ -40,6 +44,9 @@ export default function SettingsPage() {
       setTextKey(d.textKey || "");
       setTextModel(d.textModel || "deepseek-chat");
       setTextUrl(d.textUrl || "");
+      setDashscopeKey(d.dashscopeKey || "");
+      setDashscopeModel(d.dashscopeModel || "");
+      setDashscopeUrl(d.dashscopeUrl || "");
       setSchedEnabled(!!d.analyzeScheduleEnabled);
       setSchedWindows(Array.isArray(d.analyzeScheduleWindows) ? d.analyzeScheduleWindows : []);
       setSchedExcludes(Array.isArray(d.analyzeScheduleExcludes) ? d.analyzeScheduleExcludes : []);
@@ -56,6 +63,7 @@ export default function SettingsPage() {
         visionKey: visionKey.trim(), visionModel: visionModel.trim(), visionUrl: visionUrl.trim(),
         visionAllowSystem,
         textKey: textKey.trim(), textModel: textModel.trim(), textUrl: textUrl.trim(),
+        dashscopeKey: dashscopeKey.trim(), dashscopeModel: dashscopeModel.trim(), dashscopeUrl: dashscopeUrl.trim(),
         analyzeScheduleEnabled: schedEnabled,
         analyzeScheduleWindows: schedWindows,
         analyzeScheduleExcludes: schedExcludes,
@@ -204,6 +212,34 @@ export default function SettingsPage() {
               {testResult.text.detail}
             </pre>
           )}
+        </div>
+      </div>
+
+      {/* 阿里云 DashScope 备用文本通道 */}
+      <div className="card">
+        <h2 style={{ fontSize: ".95rem", fontWeight: 600, marginBottom: ".75rem", display: "flex", alignItems: "center", gap: ".3rem" }}>
+            <IconSparkle size={18} /> 阿里云 DashScope 备用文本通道</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
+          <p style={{ fontSize: ".75rem", color: "var(--text-muted)", margin: 0 }}>
+            独立配置，不影响上方主文本通道。当主通道触发限流（429）时自动切换到本通道重试；配置模型后即启用。
+          </p>
+          <div>
+            <label style={{ fontSize: ".8rem", display: "block", marginBottom: ".2rem" }}>API Key</label>
+            <input type="password" value={dashscopeKey} onChange={e => setDashscopeKey(e.target.value)} readOnly={!authed}
+              placeholder="留空则使用识别模型的 Key" style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: ".5rem" }}>
+            <div>
+              <label style={{ fontSize: ".8rem", display: "block", marginBottom: ".2rem" }}>API 地址</label>
+              <input value={dashscopeUrl} onChange={e => setDashscopeUrl(e.target.value)} readOnly={!authed}
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" style={{ width: "100%", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ fontSize: ".8rem", display: "block", marginBottom: ".2rem" }}>模型</label>
+              <input value={dashscopeModel} onChange={e => setDashscopeModel(e.target.value)} readOnly={!authed}
+                placeholder="如 qwen-plus（留空则禁用备用通道）" style={{ width: "100%", boxSizing: "border-box" }} />
+            </div>
+          </div>
         </div>
       </div>
 

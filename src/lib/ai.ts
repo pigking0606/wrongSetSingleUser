@@ -184,6 +184,7 @@ export function autoWrapMathDelimiters(text: string) {
 import { queryOne } from "@/lib/db";
 import { decrypt } from "@/lib/crypto-utils";
 import { logAiResp } from "@/lib/ai-resp-log";
+import { aiFetch, splitApiKeys, type AiEndpoint } from "@/lib/ai-fetch";
 async function loadSetting(key: string, envFallback = "") {
   try {
     const row = await queryOne<{ value: string }>("SELECT value FROM settings WHERE `key`=?", [key]);
@@ -210,7 +211,46 @@ async function getApiUrl(model: string, settingKey: string) {
 async function getVisionUrl() {
   const custom = await loadSetting("vision_url");
   if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
-  return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+  return (await getDashscopeBaseUrl()) + "/chat/completions";
+}
+
+// 阿里云 DashScope 兼容模式基础地址：dashscope_url 可独立配置，默认官方地址
+async function getDashscopeBaseUrl() {
+  const custom = await loadSetting("dashscope_url");
+  if (custom) return custom.replace(/\/+$/, "");
+  return "https://dashscope.aliyuncs.com/compatible-mode/v1";
+}
+
+// 文本模型可用 endpoints：
+//   主通道：text_url + text_key（text_key 支持逗号/分号/换行分隔多 key，逐个加入轮换）
+//   备用通道：阿里云 DashScope（dashscope_model + dashscope_key，dashscope_key 为空时回退 vision_key）
+//   仅当显式配置了 dashscope_model 才启用备用通道，避免误用视觉模型跑文本，不影响其它 API
+export async function getTextEndpoints(model: string): Promise<AiEndpoint[]> {
+  const endpoints: AiEndpoint[] = [];
+  const textKeys = splitApiKeys(await loadSetting("text_key", "DEEPSEEK_API_KEY"));
+  const textUrl = await getApiUrl(model, "text_url");
+  for (const key of textKeys) {
+    endpoints.push({ url: textUrl, key, model });
+  }
+  const dashModel = await loadSetting("dashscope_model");
+  if (dashModel) {
+    const dashKey = (await loadSetting("dashscope_key")) || (await loadSetting("vision_key", "DASHSCOPE_API_KEY"));
+    if (dashKey && !textKeys.includes(dashKey)) {
+      endpoints.push({ url: (await getDashscopeBaseUrl()) + "/chat/completions", key: dashKey, model: dashModel });
+    }
+  }
+  return endpoints;
+}
+
+// 视觉模型可用 endpoints：vision_url + vision_key（支持多 key 轮换）
+export async function getVisionEndpoints(model: string): Promise<AiEndpoint[]> {
+  const endpoints: AiEndpoint[] = [];
+  const visionKeys = splitApiKeys(await loadSetting("vision_key", "DASHSCOPE_API_KEY"));
+  const visionUrl = await getVisionUrl();
+  for (const key of visionKeys) {
+    endpoints.push({ url: visionUrl, key, model });
+  }
+  return endpoints;
 }
 
 const DEDUP_PROMPT = `你是一个文本精简助手。输入一段AI生成的文本（可能是题目解析、答案或解题步骤），其中AI可能反复推翻自己的说法、写出多个版本的解答。
@@ -243,26 +283,22 @@ async function dedupWithAI(texts: Record<string, string>, _apiKey: string): Prom
 
   try {
     const dedupModel = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
-    const resp = await fetch(
-      await getApiUrl(dedupModel, "text_url"),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: dedupModel,
-          max_tokens: 8192,
-          temperature: 0,
-          messages: [
-            { role: "system", content: DEDUP_PROMPT + "\n\n【绝对禁止】禁止输出思考过程，直接输出精简结果。" },
-            { role: "user", content: `输入文本（可能需要精简）：\n\n${entries.map(([k, v]) => `【${k}】\n${v}`).join("\n\n")}\n\n请输出精简后的文本（保持【字段名】标记，直接输出结果）：` },
-          ],
-        }),
-        signal: AbortSignal.timeout(30000),
-      }
-    );
-    if (!resp.ok) return texts;
-    const data = await resp.json();
-    const raw: string = data.choices?.[0]?.message?.content || "";
+    const res = await aiFetch({
+      label: "dedupWithAI",
+      endpoints: await getTextEndpoints(dedupModel),
+      timeoutMs: 30000,
+      buildBody: (model) => ({
+        model,
+        max_tokens: 8192,
+        temperature: 0,
+        messages: [
+          { role: "system", content: DEDUP_PROMPT + "\n\n【绝对禁止】禁止输出思考过程，直接输出精简结果。" },
+          { role: "user", content: `输入文本（可能需要精简）：\n\n${entries.map(([k, v]) => `【${k}】\n${v}`).join("\n\n")}\n\n请输出精简后的文本（保持【字段名】标记，直接输出结果）：` },
+        ],
+      }),
+    });
+    if (!res.ok) return texts;
+    const raw: string = res.json?.choices?.[0]?.message?.content || "";
     logAiResp("dedupWithAI", dedupModel, raw);
     // Parse the response: extract text between 【field】 markers
     const result = { ...texts };
@@ -348,8 +384,6 @@ ${solutionsText || "(无解法)"}
 
 请判断答案字段与解析/解法的最终结果是否一致。`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
   try {
     const body: any = {
       model,
@@ -362,18 +396,21 @@ ${solutionsText || "(无解法)"}
     };
     if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
 
-    const resp = await fetch(await getApiUrl(model, "text_url"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(body),
-      signal: controller.signal,
+    const res = await aiFetch({
+      label: "reconcileAnswerWithAI",
+      endpoints: await getTextEndpoints(model),
+      timeoutMs: 60000,
+      buildBody: (m) => {
+        const b: any = { ...body, model: m };
+        if (!m.startsWith("deepseek")) b.response_format = { type: "json_object" };
+        return b;
+      },
     });
-    if (!resp.ok) {
-      console.warn("[reconcileAnswerWithAI] API error", resp.status);
+    if (!res.ok) {
+      console.warn("[reconcileAnswerWithAI] API error", res.status);
       return;
     }
-    const data = await resp.json();
-    const rawText: string = data.choices?.[0]?.message?.content || "";
+    const rawText: string = res.json?.choices?.[0]?.message?.content || "";
     logAiResp("reconcileAnswerWithAI", model, rawText);
     const jsonStr = stripThinkingBeforeJson(rawText);
     const parsed = parseAiJson(jsonStr) as AiAnalysisResult & { correctedAnswer?: string; reason?: string; consistent?: boolean };
@@ -390,8 +427,6 @@ ${solutionsText || "(无解法)"}
     }
   } catch (err) {
     console.warn("[reconcileAnswerWithAI] failed, keeping original answer:", err instanceof Error ? err.message : err);
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -770,6 +805,24 @@ export function sanitizeLatex(text: string) {
     }
   );
 
+  // 1d. 归一化 $$ 误用：视觉模型常把行内公式写成 $$x_{1}$$（双美元），
+  //     或 $$x_{1}$$$^{2}$（$$ 块后紧跟行内上标/下标块）。
+  //     仅将"内容为短单行、不含环境/换行/对齐符"的 $$...$$ 转回行内 $...$，
+  //     真正的块级公式（\begin{...} 环境、带 \\ 或 & 或多行）保持不变。
+  text = text.replace(/\$\$([^$\n&]+)\$\$/g, (full, body) => {
+    const b = body.trim();
+    if (!b || b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
+    return "$" + b + "$";
+  });
+
+  // 1e. 合并相邻数学块：AI 常输出 $A$$^{2}$ / $A$$_{i}$ / $A$$B$（无空格相邻），
+  //     合并为单个行内块，避免前端把 x_{1} 与上标 2 分开渲染。
+  text = text.replace(/\$([^$]+)\$\$(\^|\_)\{([^}]*)\}\$/g, (_, a, op, b) => `$${a}${op}{${b}}$`);
+  text = text.replace(/\$([^$]+)\$\$([^$]+)\$/g, (full, a, b) => {
+    if (b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
+    return `$${a} ${b}$`;
+  });
+
   // 2. Merge adjacent inline blocks: $ $ → space
   //    只处理 $ + 至少1个空格 + $ 的情况，不处理 $$（display math 定界符）
   //    避免 $$x^2$$ 被破坏
@@ -982,35 +1035,25 @@ export async function fixLatexWithAI(
   const totalLen = entries.reduce((s, [, v]) => s + (v || "").length, 0);
   if (totalLen < 20) return texts;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
-
   try {
     const ltxModel = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
-    const resp = await fetch(
-      await getApiUrl(ltxModel, "text_url"),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: ltxModel,
-          max_tokens: 8192,
-          temperature: 0,
-          messages: [
-            { role: "system", content: LATEX_FIXER_PROMPT },
-            { role: "user", content: `请修复以下 JSON 中每个字段的 LaTeX 格式，返回相同结构的 JSON：\n\n${JSON.stringify(texts, null, 2)}` },
-          ],
-        }),
-        signal: controller.signal,
-      }
-    );
+    const res = await aiFetch({
+      label: "fixLatexWithAI",
+      endpoints: await getTextEndpoints(ltxModel),
+      timeoutMs: 60000,
+      buildBody: (model) => ({
+        model,
+        max_tokens: 8192,
+        temperature: 0,
+        messages: [
+          { role: "system", content: LATEX_FIXER_PROMPT },
+          { role: "user", content: `请修复以下 JSON 中每个字段的 LaTeX 格式，返回相同结构的 JSON：\n\n${JSON.stringify(texts, null, 2)}` },
+        ],
+      }),
+    });
 
-    if (!resp.ok) return texts;
-    const data = await resp.json();
-    const raw: string = data.choices?.[0]?.message?.content || "";
+    if (!res.ok) return texts;
+    const raw: string = res.json?.choices?.[0]?.message?.content || "";
     logAiResp("fixLatexWithAI", ltxModel, raw);
     try {
       // 关键：AI 返回的 JSON 中 \frac \tan \theta 等可能只有单反斜杠，
@@ -1047,8 +1090,6 @@ export async function fixLatexWithAI(
     }
   } catch {
     return texts;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -1097,29 +1138,22 @@ async function realAnalyze(
   userAnswer?: string
 ): Promise<AiAnalysisResult> {
   const systemPrompt = await buildSystemPrompt(chapterTree);
-  const apiKey = await loadSetting("vision_key", "DASHSCOPE_API_KEY");
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 300000);
+  const visionModel = await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus";
 
   try {
-    const resp = await fetch(
-      await getVisionUrl(),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey!}`,
-        },
-        body: JSON.stringify({
-          model: await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus",
-          max_tokens: 16384,
-          response_format: { type: "json_object" },
-          temperature: 0,
-          // 保留思考能力（agnes-2.0-flash 是思考型模型，对复杂数学题推理重要）
-          // 但用 stripThinkingBeforeJson 在解析前剥离思考内容，只提取最终 JSON
-          // 强化 prompt 禁止"看图猜答案"
-          messages: [
+    const res = await aiFetch({
+      label: "realAnalyze",
+      endpoints: await getVisionEndpoints(visionModel),
+      timeoutMs: 300000,
+      buildBody: (model) => ({
+        model,
+        max_tokens: 16384,
+        response_format: { type: "json_object" },
+        temperature: 0,
+        // 保留思考能力（agnes-2.0-flash 是思考型模型，对复杂数学题推理重要）
+        // 但用 stripThinkingBeforeJson 在解析前剥离思考内容，只提取最终 JSON
+        // 强化 prompt 禁止"看图猜答案"
+        messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
@@ -1192,19 +1226,16 @@ async function realAnalyze(
               ],
             },
           ],
-        }),
-        signal: controller.signal,
-      }
-    );
+      }),
+    });
 
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      throw new AiApiError(`AI API error ${resp.status}: ${errText}`, resp.status);
+    if (!res.ok) {
+      const errText = JSON.stringify(res.json || {}).slice(0, 500);
+      throw new AiApiError(`AI API error ${res.status}: ${errText}`, res.status);
     }
 
-    const data = await resp.json();
     // qwen3.6-flash returns reasoning_content separately, but just in case
-    const msg = data.choices?.[0]?.message || {};
+    const msg = res.json?.choices?.[0]?.message || {};
     const rawText: string = msg.content || "";
     // If AI put reasoning inline, extract just the JSON part
     const cleanText = rawText.includes("{") ? rawText.slice(rawText.indexOf("{")) : rawText;
@@ -1224,7 +1255,7 @@ async function realAnalyze(
     }
 
     // ---- Layer 2: second AI pass to fix remaining LaTeX mistakes ----
-    await applyLatexFixer(parsed, apiKey!);
+    await applyLatexFixer(parsed, "");
 
     // ---- Final sanitize after AI fixer ----
     parsed.ocrText = sanitizeLatex(parsed.ocrText);
@@ -1237,7 +1268,7 @@ async function realAnalyze(
     }
 
     // ---- AI dedup: remove self-debate before formatting ----
-    await dedupResult(parsed, apiKey!);
+    await dedupResult(parsed, "");
 
     // Strip question numbers from OCR text (e.g. "32. ", "【2021统考真题】")
     if (parsed.ocrText) {
@@ -1251,10 +1282,8 @@ async function realAnalyze(
     return parsed;
   } catch (err) {
     if (err instanceof AiApiError || err instanceof AiParseError) throw err;
-    if ((err as Error).name === "AbortError") throw new AiTimeoutError("AI analysis timed out");
+    if ((err as Error).name === "AbortError" || (err as Error).name === "TimeoutError") throw new AiTimeoutError("AI analysis timed out");
     throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -1500,9 +1529,6 @@ async function analyzeOcrAndClassify(
   console.log(`[analyzeOcrAndClassify] 请求 model=${visionModel} url=${visionUrl} imageBytes=${Math.round(imageBase64.length * 0.75)} systemPrompt长度=${systemPrompt.length} allowSystem=${allowSystem}`);
   logAiResp("analyzeOcrAndClassify[REQ]", visionModel, systemPrompt.slice(0, 500), `完整 systemPrompt 长度=${systemPrompt.length} 字符 | allowSystem=${allowSystem}`);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 300000);
-
   // 构造 messages：allowSystem=true 时用标准 system+user 结构；
   // allowSystem=false 时把 systemPrompt 合并到 user message 的 text 部分
   const messages = allowSystem
@@ -1527,38 +1553,31 @@ async function analyzeOcrAndClassify(
       ];
 
   try {
-    const resp = await fetch(
-      visionUrl,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: visionModel,
-          max_tokens: 16384,
-          response_format: { type: "json_object" },
-          temperature: 0,
-          messages,
-        }),
-        signal: controller.signal,
-      }
-    );
+    const res = await aiFetch({
+      label: "analyzeOcrAndClassify",
+      endpoints: await getVisionEndpoints(visionModel),
+      timeoutMs: 300000,
+      buildBody: (model) => ({
+        model,
+        max_tokens: 16384,
+        response_format: { type: "json_object" },
+        temperature: 0,
+        messages,
+      }),
+    });
 
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      console.error(`[analyzeOcrAndClassify] API error status=${resp.status} body=${errText.slice(0, 500)}`);
-      throw new AiApiError(`OCR+分类 API error ${resp.status}: ${errText}`, resp.status);
+    if (!res.ok) {
+      const errText = JSON.stringify(res.json || {}).slice(0, 500);
+      console.error(`[analyzeOcrAndClassify] API error status=${res.status} body=${errText}`);
+      throw new AiApiError(`OCR+分类 API error ${res.status}: ${errText}`, res.status);
     }
 
-    const data = await resp.json();
-    const rawText: string = data.choices?.[0]?.message?.content || "";
+    const rawText: string = res.json?.choices?.[0]?.message?.content || "";
     logAiResp("analyzeOcrAndClassify", visionModel, rawText);
     console.log(`[analyzeOcrAndClassify] 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);
     // AI 返回空响应时直接报错，不用空值假装成功
     if (!rawText || rawText.trim().length === 0) {
-      console.error("[analyzeOcrAndClassify] AI 返回空响应，完整响应体:", JSON.stringify(data).slice(0, 500));
+      console.error("[analyzeOcrAndClassify] AI 返回空响应，完整响应体:", JSON.stringify(res.json).slice(0, 500));
       throw new AiApiError("AI 返回空响应（可能被限流或超时）", 503);
     }
     const jsonStr = stripThinkingBeforeJson(rawText);
@@ -1594,10 +1613,8 @@ async function analyzeOcrAndClassify(
     };
   } catch (err) {
     if (err instanceof AiApiError || err instanceof AiParseError) throw err;
-    if ((err as Error).name === "AbortError") throw new AiTimeoutError("OCR+分类步骤超时");
+    if ((err as Error).name === "AbortError" || (err as Error).name === "TimeoutError") throw new AiTimeoutError("OCR+分类步骤超时");
     throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -1650,50 +1667,43 @@ async function analyzeAnswerAndExplain(
   if (!apiKey) throw new AiApiError("text_key / vision_key 都未配置，请在设置页面填写", 500);
 
   const model = await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus";
-  const apiUrl = await getApiUrl(model, "text_url");
-  console.log(`[analyzeAnswerAndExplain] 请求 model=${model} url=${apiUrl} ocrText长度=${ocrText.length}`);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 300000);
+  console.log(`[analyzeAnswerAndExplain] 请求 model=${model} ocrText长度=${ocrText.length}`);
 
   try {
     const userText = userAnswer
       ? `请基于以下题干文本推导答案。我的答案是「${userAnswer}」（仅供参考，可能错误，请独立推导）。\n\n题干：\n${ocrText}`
       : `请基于以下题干文本推导答案。\n\n题干：\n${ocrText}`;
 
-    const body: any = {
-      model,
-      max_tokens: 16384,
-      temperature: 0,
-      messages: [
-        { role: "system", content: ANSWER_EXPLAIN_PROMPT },
-        { role: "user", content: userText },
-      ],
-    };
-    if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
+    const res = await aiFetch({
+      label: "analyzeAnswerAndExplain",
+      endpoints: await getTextEndpoints(model),
+      timeoutMs: 300000,
+      buildBody: (m) => {
+        const body: any = {
+          model: m,
+          max_tokens: 16384,
+          temperature: 0,
+          messages: [
+            { role: "system", content: ANSWER_EXPLAIN_PROMPT },
+            { role: "user", content: userText },
+          ],
+        };
+        if (!m.startsWith("deepseek")) body.response_format = { type: "json_object" };
+        return body;
+      },
+    });
 
-    const resp = await fetch(
-      apiUrl,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      }
-    );
-
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      console.error(`[analyzeAnswerAndExplain] API error status=${resp.status} body=${errText.slice(0, 500)}`);
-      throw new AiApiError(`答案推导 API error ${resp.status}: ${errText}`, resp.status);
+    if (!res.ok) {
+      const errText = JSON.stringify(res.json || {}).slice(0, 500);
+      console.error(`[analyzeAnswerAndExplain] API error status=${res.status} body=${errText}`);
+      throw new AiApiError(`答案推导 API error ${res.status}: ${errText}`, res.status);
     }
 
-    const data = await resp.json();
-    const rawText: string = data.choices?.[0]?.message?.content || "";
-    const finishReason: string = data.choices?.[0]?.finish_reason || "";
-    logAiResp("analyzeAnswerAndExplain", model, rawText, `finish_reason=${finishReason}, usage=${JSON.stringify(data.usage)}`);
+    const data = res.json;
+    const modelUsed: string = data?.model || model;
+    const rawText: string = data?.choices?.[0]?.message?.content || "";
+    const finishReason: string = data?.choices?.[0]?.finish_reason || "";
+    logAiResp("analyzeAnswerAndExplain", modelUsed, rawText, `finish_reason=${finishReason}, usage=${JSON.stringify(data.usage)}`);
     console.log(`[analyzeAnswerAndExplain] 响应长度=${rawText.length} finish=${finishReason} 前200字=${rawText.slice(0, 200)}`);
     if (finishReason === "length") {
       // 思考型模型 reasoning_content 占用 max_tokens 配额，导致 content 被截断
@@ -1719,10 +1729,8 @@ async function analyzeAnswerAndExplain(
     };
   } catch (err) {
     if (err instanceof AiApiError || err instanceof AiParseError) throw err;
-    if ((err as Error).name === "AbortError") throw new AiTimeoutError("答案推导步骤超时");
+    if ((err as Error).name === "AbortError" || (err as Error).name === "TimeoutError") throw new AiTimeoutError("答案推导步骤超时");
     throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

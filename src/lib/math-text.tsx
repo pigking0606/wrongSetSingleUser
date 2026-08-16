@@ -92,9 +92,31 @@ function removeOrphanDollars(text: string): string {
   return chars.filter((_, idx) => !remove.has(idx)).join("");
 }
 
+// 归一化 AI 输出的 $$ 误用（兼容历史已存数据）：
+//   $$x_{1}$$ → $x_{1}$；$A$$^{2}$ → $A^{2}$；$A$$B$ → $A B$
+// 与服务端 sanitizeLatex 的处理规则保持一致
+function normalizeDollarMisuse(text: string): string {
+  // $$...$$ → $...$（短单行、不含环境/换行/对齐符；真正块级公式保持不变）
+  text = text.replace(/\$\$([^$\n&]+)\$\$/g, (full, body: string) => {
+    const b = body.trim();
+    if (!b || b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
+    return "$" + b + "$";
+  });
+  // 合并相邻数学块：$A$$^{...}$ / $A$$_{...}$ → 单个行内块
+  text = text.replace(/\$([^$]+)\$\$(\^|\_)\{([^}]*)\}\$/g, (_, a, op, b) => `$${a}${op}{${b}}$`);
+  // 一般相邻：$A$$B$ → $A B$
+  text = text.replace(/\$([^$]+)\$\$([^$]+)\$/g, (full, a, b) => {
+    if (b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
+    return `$${a} ${b}$`;
+  });
+  return text;
+}
+
 function tokenize(text: string): Array<{ type: "block" | "inline" | "auto" | "text"; value: string }> {
   // Strip orphan $ signs (unmatched singles) before processing
   text = removeOrphanDollars(text);
+  // 归一化 $$ 误用，避免把 x_{1} 与上标 2 分开渲染
+  text = normalizeDollarMisuse(text);
 
   const tokens: Array<{ type: "block" | "inline" | "auto" | "text"; value: string }> = [];
   const parts = text.split(BLOCK_RE);

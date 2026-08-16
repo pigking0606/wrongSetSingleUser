@@ -3,9 +3,10 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { queryOne, runAndSave } from "@/lib/db";
 import { initSchema } from "@/lib/schema";
-import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI, normalizeDifficulty, inferQuestionType } from "@/lib/ai";
+import { autoWrapMathDelimiters, sanitizeLatex, sanitizeOcrText, fixLatexWithAI, reconcileAnswerWithAI, normalizeDifficulty, inferQuestionType, getTextEndpoints, getVisionEndpoints } from "@/lib/ai";
 import { enqueue } from "@/lib/analysis-queue";
 import { logAiResp } from "@/lib/ai-resp-log";
+import { aiFetch } from "@/lib/ai-fetch";
 
 import { decrypt } from "@/lib/crypto-utils";
 async function loadSetting(key: string, envFallback = "") {
@@ -14,13 +15,6 @@ async function loadSetting(key: string, envFallback = "") {
     if (row?.value) return decrypt(row.value);
   } catch { /* */ }
   return process.env[envFallback] || "";
-}
-
-async function getReanalyzeUrl(model: string, isText: boolean) {
-  const custom = await loadSetting(isText ? "text_url" : "vision_url");
-  if (custom) return custom.replace(/\/+$/, "") + "/chat/completions";
-  if (model.startsWith("deepseek")) return "https://api.deepseek.com/v1/chat/completions";
-  return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 }
 
 const REANALYZE_PROMPT = `你是考研命题专家。请重新分析以下题目，严格返回纯JSON：
@@ -160,36 +154,29 @@ async function processReanalyze(
     const rModel = answerOnly
       ? (await loadSetting("text_model", "TEXT_MODEL") || "qwen-plus")
       : (await loadSetting("vision_model", "DASHSCOPE_MODEL") || "qwen-vl-plus");
-    const rApiKey = rModel.startsWith("deepseek")
-      ? (await loadSetting("text_key", "DEEPSEEK_API_KEY") || apiKey)
-      : (await loadSetting("vision_key", "DASHSCOPE_API_KEY") || apiKey);
-    const rBody: any = { model: rModel, max_tokens: 16384, temperature: 0, messages: [systemMsg, userMsg] };
-    if (!rModel.startsWith("deepseek")) rBody.response_format = { type: "json_object" };
+    console.log(`[Reanalyze] question=${questionId} mode=${answerOnly ? "answer" : "full"} model=${rModel}`);
 
-    const reanalyzeUrl = await getReanalyzeUrl(rModel, answerOnly);
-    console.log(`[Reanalyze] question=${questionId} mode=${answerOnly ? "answer" : "full"} model=${rModel} url=${reanalyzeUrl}`);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000);
-
-    let resp: any;
-    try {
-      resp = await fetch(reanalyzeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${rApiKey}` },
-        body: JSON.stringify(rBody),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (!resp.ok) {
-      const errBody = await resp.text().catch(() => "");
-      console.error(`[Reanalyze] question=${questionId} API error status=${resp.status} body=${errBody.slice(0, 500)}`);
-      throw new Error(`AI error: ${resp.status}`);
+    // 统一走 aiFetch：限流(429)自动退避重试 + 多 key 自动轮换 + DashScope 备用通道
+    const endpoints = answerOnly
+      ? await getTextEndpoints(rModel)
+      : await getVisionEndpoints(rModel);
+    const res = await aiFetch({
+      label: `Reanalyze[q${questionId}]`,
+      endpoints,
+      timeoutMs: 300000,
+      buildBody: (m) => {
+        const body: any = { model: m, max_tokens: 16384, temperature: 0, messages: [systemMsg, userMsg] };
+        if (!m.startsWith("deepseek")) body.response_format = { type: "json_object" };
+        return body;
+      },
+    });
+    if (!res.ok) {
+      const errBody = JSON.stringify(res.json || {}).slice(0, 500);
+      console.error(`[Reanalyze] question=${questionId} API error status=${res.status} body=${errBody}`);
+      throw new Error(`AI error: ${res.status}`);
     }
 
-    const data = await resp.json();
+    const data = res.json;
     const rawText: string = data.choices?.[0]?.message?.content || "";
     logAiResp(`Reanalyze[q${questionId}/${answerOnly ? "answer" : "full"}]`, rModel, rawText);
     console.log(`[Reanalyze] question=${questionId} 响应长度=${rawText.length} 前200字=${rawText.slice(0, 200)}`);

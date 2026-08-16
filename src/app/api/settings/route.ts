@@ -20,7 +20,7 @@ async function getPlain(key: string, envFallback = "") {
   return await getRaw(key, envFallback);
 }
 
-const KEY_FIELDS = new Set(["vision_key", "text_key"]);
+const KEY_FIELDS = new Set(["vision_key", "text_key", "dashscope_key"]);
 
 export async function GET() {
   await initSchema();
@@ -45,6 +45,10 @@ export async function GET() {
     textKey: (await getKey("text_key", "DEEPSEEK_API_KEY")) || (await getKey("vision_key", "DASHSCOPE_API_KEY")),
     textModel: await getPlain("text_model", "TEXT_MODEL") || "deepseek-chat",
     textUrl: await getPlain("text_url"),
+    // 阿里云 DashScope 备用文本通道（独立配置，不影响主通道）
+    dashscopeKey: await getKey("dashscope_key"),
+    dashscopeModel: await getPlain("dashscope_model"),
+    dashscopeUrl: await getPlain("dashscope_url"),
     analyzeScheduleEnabled,
     analyzeScheduleWindows,
     analyzeScheduleExcludes,
@@ -64,6 +68,10 @@ export async function POST(req: NextRequest) {
   if (body.textKey !== undefined) pairs.push(["text_key", body.textKey]);
   if (body.textModel !== undefined) pairs.push(["text_model", body.textModel]);
   if (body.textUrl !== undefined) pairs.push(["text_url", body.textUrl]);
+  // 阿里云 DashScope 备用文本通道独立配置
+  if (body.dashscopeKey !== undefined) pairs.push(["dashscope_key", body.dashscopeKey]);
+  if (body.dashscopeModel !== undefined) pairs.push(["dashscope_model", body.dashscopeModel]);
+  if (body.dashscopeUrl !== undefined) pairs.push(["dashscope_url", body.dashscopeUrl]);
 
   // 自动解析时段设置（明文存储 JSON）
   if (body.analyzeScheduleEnabled !== undefined) pairs.push(["analyze_schedule_enabled", body.analyzeScheduleEnabled ? "1" : "0"]);
