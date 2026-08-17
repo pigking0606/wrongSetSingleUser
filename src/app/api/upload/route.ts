@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     // 解析任务进入队列：最多并发 2 个，每题完成后等待 1s 再继续
     enqueue(async () => {
       await performAnalysis(questionId);
-    }).catch(err => {
+    }, `upload-q${questionId}`).catch(err => {
       console.error("Background analysis failed for question", questionId, err);
     });
 

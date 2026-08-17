@@ -109,6 +109,11 @@ function normalizeDollarMisuse(text: string): string {
     if (b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
     return `$${a} ${b}$`;
   });
+  // 合并连续数字上标：2^{1}^{2}^{3} → 2^{123}（与 sanitizeLatex 保持一致）
+  text = text.replace(/(\d+)((?:\^\{[0-9]+\})+)/g, (full, base, exps) => {
+    const merged = exps.replace(/\^\{([0-9]+)\}/g, '$1');
+    return `${base}^{${merged}}`;
+  });
   return text;
 }
 

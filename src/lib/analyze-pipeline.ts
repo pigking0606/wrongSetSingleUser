@@ -104,6 +104,11 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
   } catch (err) {
     console.error(`[performAnalysis] question=${questionId} error:`, err instanceof Error ? err.message : err);
     const errMsg = err instanceof Error ? err.message : "AI 分析失败";
+    // 429 限流错误：不保存 "error" 状态（避免覆盖已有 OCR 数据），重新抛出让队列重试
+    if (errMsg.includes("429") || errMsg.includes("1302") || errMsg.includes("rate limit") || errMsg.includes("限流") || errMsg.includes("频率")) {
+      console.warn(`[performAnalysis] question=${questionId} 触发限流(429)，不标记 error，让队列等待后重试`);
+      throw err;
+    }
     await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
     return null;
   }

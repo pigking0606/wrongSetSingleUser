@@ -3,6 +3,7 @@
 // - 每题解析完成后等待 1s 再继续解析下一题
 // - 队列长度不限
 // - 支持时段限制：仅在允许时段内启动新任务，排除时段内暂停
+// - 429 错误自动重试：指数退避（30s → 60s → 120s），最多 3 次
 //   设置项（settings 表，明文存储）：
 //     analyze_schedule_enabled  "1"/"0" 是否启用时段限制
 //     analyze_schedule_windows  JSON: [{"start":"HH:MM","end":"HH:MM"}] 允许时段
@@ -11,6 +12,14 @@
 
 import { queryOne } from "@/lib/db";
 
+interface QueuedItem {
+  task: Task;
+  resolve: () => void;
+  reject: (e: unknown) => void;
+  retryCount: number;       // 当前已重试次数
+  label: string;            // 用于日志标识
+}
+
 type Task = () => Promise<void>;
 interface TimeWindow { start: string; end: string; }
 
@@ -18,12 +27,19 @@ const MAX_CONCURRENCY = 2;
 const COOLDOWN_MS = 1000;
 // 不在允许时段时，每 30 秒重试一次（等待进入时段）
 const RETRY_MS = 30 * 1000;
+// 429 重试最多 3 次
+const MAX_RETRIES = 3;
+// 429 重试间隔基数（指数退避：30s, 60s, 120s）
+const RETRY_BASE_MS = 30 * 1000;
 // gate 缓存有效期 20 秒，避免每次 schedule 都读 DB
 const GATE_CACHE_MS = 20 * 1000;
 
 let running = 0;
-const waiting: Array<{ task: Task; resolve: () => void; reject: (e: unknown) => void }> = [];
+const waiting: Array<QueuedItem> = [];
 let wakeTimer: NodeJS.Timeout | null = null;
+let rateLimitCooldownTimer: NodeJS.Timeout | null = null;
+// 在 429 冷却期内暂停调度新任务
+let rateLimitCooldown = false;
 // gate 缓存：{ value, expiresAt }，expiresAt 为时间戳（ms）
 let gateCache: { value: boolean; expiresAt: number } | null = null;
 
@@ -95,6 +111,9 @@ export async function isAllowedNow(): Promise<boolean> {
 }
 
 async function schedule() {
+  // 429 冷却期内不调度新任务
+  if (rateLimitCooldown) return;
+
   // 若有等待中的任务才需要判断 gate
   if (waiting.length === 0) return;
 
@@ -117,24 +136,63 @@ async function schedule() {
   }
 }
 
-async function runOne(item: { task: Task; resolve: () => void; reject: (e: unknown) => void }) {
+// 判断错误是否为 429（限流）
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("429") || msg.includes("1302") || msg.includes("rate limit") || msg.includes("限流") || msg.includes("频率");
+}
+
+async function runOne(item: QueuedItem) {
   try {
     await item.task();
+    // 成功：重置冷却
+    rateLimitCooldown = false;
     item.resolve();
   } catch (err) {
-    item.reject(err);
+    // 429 限流错误：自动重试（指数退避）
+    if (isRateLimitError(err) && item.retryCount < MAX_RETRIES) {
+      const delay = RETRY_BASE_MS * Math.pow(2, item.retryCount);
+      const nextRetry = item.retryCount + 1;
+      console.warn(`[analysis-queue] ${item.label} 触发限流(429), 第${nextRetry}次重试在 ${(delay / 1000).toFixed(0)}s 后`);
+      // 进入冷却期，暂停后续任务调度
+      rateLimitCooldown = true;
+      if (rateLimitCooldownTimer) clearTimeout(rateLimitCooldownTimer);
+      rateLimitCooldownTimer = setTimeout(() => {
+        rateLimitCooldown = false;
+        rateLimitCooldownTimer = null;
+        schedule();
+      }, delay);
+      // 重新入队（等冷却期结束后执行）
+      waiting.push({
+        task: item.task,
+        resolve: item.resolve,
+        reject: item.reject,
+        retryCount: nextRetry,
+        label: item.label,
+      });
+      console.log(`[analysis-queue] ${item.label} 已重新入队等待重试 (retry=${nextRetry}/${MAX_RETRIES})`);
+    } else {
+      // 非 429 错误或已达最大重试次数 → 拒绝
+      if (isRateLimitError(err)) {
+        console.error(`[analysis-queue] ${item.label} 已重试 ${MAX_RETRIES} 次仍 429，放弃`);
+      }
+      rateLimitCooldown = false;
+      item.reject(err);
+    }
   } finally {
     running--;
-    // 每题解析完成后等待 1s 再继续解析下一题
-    setTimeout(() => schedule(), COOLDOWN_MS);
+    // 冷却期内的调度由冷却定时器触发，不在冷却期内按正常间隔调度
+    if (!rateLimitCooldown) {
+      setTimeout(() => schedule(), COOLDOWN_MS);
+    }
   }
 }
 
 /** 将任务加入解析队列，返回 Promise（任务完成时 resolve） */
-export function enqueue(task: Task): Promise<void> {
+export function enqueue(task: Task, label?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    waiting.push({ task, resolve, reject });
-    console.log(`[analysis-queue] enqueued (running=${running}, pending=${waiting.length})`);
+    waiting.push({ task, resolve, reject, retryCount: 0, label: label || "unnamed" });
+    console.log(`[analysis-queue] enqueued ${label || ""} (running=${running}, pending=${waiting.length})`);
     // fire-and-forget，不阻塞调用方
     schedule();
   });
@@ -142,5 +200,5 @@ export function enqueue(task: Task): Promise<void> {
 
 /** 获取队列状态 */
 export function getQueueStatus() {
-  return { running, pending: waiting.length, capacity: MAX_CONCURRENCY };
+  return { running, pending: waiting.length, capacity: MAX_CONCURRENCY, rateLimitCooldown };
 }

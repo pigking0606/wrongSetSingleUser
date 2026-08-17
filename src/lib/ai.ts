@@ -22,6 +22,12 @@ export class AiTimeoutError extends Error { name = "AiTimeoutError"; }
 export class AiApiError extends Error { name = "AiApiError"; constructor(msg: string, public status: number) { super(msg); } }
 export class AiParseError extends Error { name = "AiParseError"; constructor(msg: string, public rawText: string) { super(msg); } }
 
+// 判断错误是否为限流（429）错误，用于队列重试判断
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("429") || msg.includes("1302") || msg.includes("rate limit") || msg.includes("限流") || msg.includes("频率");
+}
+
 // 难度规范化：AI 可能输出 1-5 之外的字符串/越界值，统一收敛到 1-5 整数，非法值默认 3
 export function normalizeDifficulty(raw: unknown): number {
   const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(raw, 10) : NaN;
@@ -249,7 +255,18 @@ export async function getVisionEndpoints(model: string): Promise<AiEndpoint[]> {
   const visionKeys = splitApiKeys(await loadSetting("vision_key", "DASHSCOPE_API_KEY"));
   const visionUrl = await getVisionUrl();
   for (const key of visionKeys) {
-    endpoints.push({ url: visionUrl, key, model });
+    endpoints.push({ url: visionUrl, key, model, group: 0 });
+  }
+  // 备用通道：如果配置了 DashScope 的备用 key，且不与主 key 重复，也加入 vision 备选
+  const dashModel = await loadSetting("dashscope_model");
+  const dashKey = (await loadSetting("dashscope_key") || "");
+  if (dashModel && dashKey && !visionKeys.includes(dashKey)) {
+    const dashUrl = (await getDashscopeBaseUrl()) + "/chat/completions";
+    // 部分 DashScope 模型也支持视觉（如 qwen-vl-*），但以文本模型名义配置
+    // 如果备用模型名以 vl 结尾或包含 vision，加入 vision 备选
+    if (dashModel.includes("vl") || dashModel.includes("vision")) {
+      endpoints.push({ url: dashUrl, key: dashKey, model: dashModel, group: 1 });
+    }
   }
   return endpoints;
 }
@@ -822,6 +839,15 @@ export function sanitizeLatex(text: string) {
   text = text.replace(/\$([^$]+)\$\$([^$]+)\$/g, (full, a, b) => {
     if (b.includes("\\begin") || b.includes("\\end") || b.includes("\\\\") || b.length > 60) return full;
     return `$${a} ${b}$`;
+  });
+
+  // 1f. 合并连续数字上标：AI 常把 2^{123} 输出为 2^{1}^{2}^{3}（多位数上标被按位拆分），
+  //     或 a^{2}^{3} → a^{23}，x^{10}^{5} → x^{105}。
+  //     不仅是渲染问题，还会导致 LaTeX 语法错误。
+  text = text.replace(/(\d+)((?:\^\{[0-9]+\})+)/g, (full, base, exps) => {
+    // 收集所有 ^{digit} 的数字部分，拼接为完整指数
+    const merged = exps.replace(/\^\{([0-9]+)\}/g, '$1');
+    return `${base}^{${merged}}`;
   });
 
   // 2. Merge adjacent inline blocks: $ $ → space
@@ -1757,12 +1783,18 @@ export async function analyzeImageTwoStep(
 
   // Step 2: Answer + explain (text model, NO image — eliminates "看图猜答案")
   // 第二步失败 = 只丢答案/解析，OCR 和分类仍可用，标记 error_reason 供前端触发重解析
+  // 但如果失败原因是 429（限流），则重新抛出给队列，让队列等待后重试整个分析
   console.log("[analyzeImageTwoStep] Step 2: Answer + explain (text-only)");
   let answerResult: { correctAnswer: string; explanation: string; solutions: AiAnalysisResult["solutions"]; confidence: number; difficulty: number };
   let step2Error: string | null = null;
   try {
     answerResult = await analyzeAnswerAndExplain(ocrResult.ocrText, userAnswer);
   } catch (err) {
+    // 429 限流错误：重新抛出，让队列等待后重试整个分析流程
+    if (isRateLimitError(err)) {
+      console.warn("[analyzeImageTwoStep] Step 2 触发限流(429)，重新抛出给队列重试");
+      throw err;
+    }
     console.warn("[analyzeImageTwoStep] Step 2 failed, saving OCR only:", err);
     answerResult = { correctAnswer: "", explanation: "", solutions: [], confidence: 0, difficulty: 3 };
     step2Error = err instanceof Error ? err.message : "答案推导步骤失败";

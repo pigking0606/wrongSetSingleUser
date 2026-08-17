@@ -319,6 +319,11 @@ async function processReanalyze(
   } catch (err) {
     console.error(`[Reanalyze] question=${questionId} background error:`, err instanceof Error ? err.message : err);
     const errMsg = err instanceof Error ? err.message : String(err);
+    // 429 限流错误：不标记 error，重新抛出让队列等待后重试
+    if (errMsg.includes("429") || errMsg.includes("1302") || errMsg.includes("rate limit") || errMsg.includes("限流") || errMsg.includes("频率")) {
+      console.warn(`[Reanalyze] question=${questionId} 触发限流(429)，不标记 error，让队列等待后重试`);
+      throw err;
+    }
     await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [errMsg.slice(0, 200), questionId]);
   }
 }
@@ -346,7 +351,7 @@ export async function POST(req: NextRequest) {
   // 重解析任务进入队列：最多并发 2 个，每题完成后等待 1s 再继续
   enqueue(async () => {
     await processReanalyze(q.id, q.ocr_text, q.image_path, apiKey, isAnswerOnly, reason);
-  }).catch(async err => {
+  }, `reanalyze-q${q.id}`).catch(async err => {
     console.error(`[Reanalyze] question=${q.id} queue error:`, err instanceof Error ? err.message : err);
     await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", [String(err).slice(0, 200), q.id]);
   });
