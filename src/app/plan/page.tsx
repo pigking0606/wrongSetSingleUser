@@ -599,6 +599,13 @@ export default function PlanPage() {
         </div>
       </div>
 
+      {/* 上次计时结束时间 */}
+      {timer.lastEnd && (
+        <div style={{ fontSize: ".75rem", color: "var(--text-muted)", textAlign: "center" }}>
+          上次计时结束：{new Date(timer.lastEnd).toLocaleString("zh-CN", { hour12: false })}（计时已保存）
+        </div>
+      )}
+
       {/* 月度学习时长总览按钮 + 热力图 */}
       <button className="btn" onClick={() => setShowMonthView(!showMonthView)}
         style={{ width: "100%", fontSize: ".85rem", display: "flex", alignItems: "center", justifyContent: "center", gap: ".3rem" }}>
@@ -1077,6 +1084,7 @@ export default function PlanPage() {
             toast(`累计 ${Math.floor(sec/60)}分${sec%60}秒 已保存`);
             setShowFullscreen(false);
           }}
+          onClose={() => setShowFullscreen(false)}
         />
       )}
     </div>

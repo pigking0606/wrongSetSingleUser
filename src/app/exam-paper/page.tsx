@@ -30,6 +30,8 @@ export default function ExamPaperPage() {
   const [showAllAnswers, setShowAllAnswers] = useState(false);
   const [shownImages, setShownImages] = useState<Set<number>>(new Set());
   const [shownExplanations, setShownExplanations] = useState<Set<number>>(new Set());
+  const [savingPaper, setSavingPaper] = useState(false);
+  const [savedPaperId, setSavedPaperId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/chapters?level=1").then(r => r.json()).then(setSubjects).catch(() => {});
@@ -42,6 +44,37 @@ export default function ExamPaperPage() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+
+  // 保存生成的试卷快照，供打印后校对
+  const savePaper = async () => {
+    if (!paper || savingPaper) return;
+    setSavingPaper(true);
+    setSavedPaperId(null);
+    try {
+      const subName = subjects.find(s => s.id === subjectId)?.name || "";
+      const label = [subName, Array.from(selectedBankIds)
+        .map(id => banks.find(b => b.id === id)?.name)
+        .filter(Boolean).join(",")].filter(Boolean).join(" · ");
+      const d = new Date();
+      const title = `错题模拟卷 ${subName} · ${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      const resp = await fetch("/api/mock-papers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title, subject_id: subjectId, subject_name: subName || null,
+          label: label || null, total: paper.total, total_score: paper.totalScore,
+          sections: paper.sections,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "保存失败");
+      setSavedPaperId(data.id);
+    } catch {
+      alert("保存试卷失败，请重试");
+    } finally {
+      setSavingPaper(false);
+    }
   };
 
   // 首次进入不自动生成，由用户点击"生成试卷"按钮触发
@@ -109,9 +142,19 @@ export default function ExamPaperPage() {
         </button>
         {!subjectId && <span style={{ fontSize: ".75rem", color: "var(--text-muted)" }}>拼卷仅支持单科目，请先选择科目</span>}
         {paper && paper.total > 0 && (
+          <>
           <button className="btn" style={{ fontSize: ".85rem" }} onClick={() => setShowAllAnswers(a => !a)}>
             {showAllAnswers ? "隐藏全部答案" : "显示全部答案"}
           </button>
+          <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={savePaper} disabled={savingPaper}>
+            {savingPaper ? "保存中..." : "保存试卷"}
+          </button>
+          {savedPaperId && (
+            <span style={{ fontSize: ".8rem", color: "var(--green-text)", display: "inline-flex", alignItems: "center", gap: ".35rem" }}>
+              已保存 <Link href={`/mock-papers/${savedPaperId}`} style={{ color: "inherit" }}>去打印/校对 →</Link>
+            </span>
+          )}
+          </>
         )}
       </div>
 

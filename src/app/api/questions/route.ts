@@ -14,6 +14,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ question: row || null });
   }
 
+  // Lookup single question by id (used by the standalone edit page)
+  const singleId = searchParams.get("id");
+  if (singleId) {
+    const id = parseInt(singleId);
+    if (id) {
+      const row = await queryOne(`
+        SELECT
+          q.*,
+          kp.name AS kp_name,
+          ch.name AS chapter_name,
+          sub.name AS subject_name,
+          sub.id AS subject_id,
+          ch.id AS chapter_l2_id
+        FROM questions q
+        LEFT JOIN chapters kp ON q.chapter_id = kp.id
+        LEFT JOIN chapters ch ON kp.parent_id = ch.id
+        LEFT JOIN chapters sub ON ch.parent_id = sub.id
+        WHERE q.id = ?`, [id]);
+      return NextResponse.json({ question: row || null });
+    }
+  }
+
   const chapterId = searchParams.get("chapter_id");
   const bankId = searchParams.get("bank_id");
   const subjectId = searchParams.get("subject_id");

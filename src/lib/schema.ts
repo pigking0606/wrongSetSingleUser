@@ -94,6 +94,20 @@ export async function initSchema() {
       error_reason TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // 错题拼好卷：保存生成的试卷结构快照（题目 json），支持打印后校对并更新正误
+    `CREATE TABLE IF NOT EXISTS mock_papers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      title VARCHAR(500) NOT NULL,
+      subject_id INT,
+      subject_name VARCHAR(500),
+      label VARCHAR(500),
+      total INT DEFAULT 0,
+      total_score INT DEFAULT 0,
+      sections_data LONGTEXT,
+      answer_records LONGTEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      extra_text_1 TEXT
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 
   for (const sql of tables) {

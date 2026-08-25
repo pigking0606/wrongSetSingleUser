@@ -14,6 +14,6 @@ const pool = mysql.createPool({
 
 export async function getDb() { return pool; }
 export async function saveDb() {}
-export async function runAndSave(sql: string, params?: any[]) { await pool.execute(sql, params); }
+export async function runAndSave(sql: string, params?: any[]) { const [result] = await pool.execute(sql, params); return result; }
 export async function queryAll<T = any>(sql: string, params?: any[]): Promise<T[]> { const [rows] = await pool.execute(sql, params); return rows as T[]; }
 export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> { const rows = await queryAll<T>(sql, params); return rows[0] || null; }

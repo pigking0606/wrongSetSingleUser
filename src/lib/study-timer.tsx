@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { globalTimer } from "@/lib/global-timer";
+import { NeteasePlayer } from "@/lib/netease-player";
 
 const STUDY_PHOTOS = [
   "https://picsum.photos/id/1015/1920/1080",
@@ -92,6 +93,7 @@ export function useGlobalTimer() {
   const [paused, setPaused] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
+  const [lastEnd, setLastEnd] = useState<number | null>(globalTimer.lastEnd);
 
   useEffect(() => {
     setSegmentElapsed(globalTimer.segmentElapsed);
@@ -100,6 +102,7 @@ export function useGlobalTimer() {
     setPaused(globalTimer.paused);
     setTaskId(globalTimer.taskId);
     setTaskTitle(globalTimer.taskTitle);
+    setLastEnd(globalTimer.lastEnd);
     return globalTimer.subscribe(() => {
       setSegmentElapsed(globalTimer.segmentElapsed);
       setTotalElapsed(globalTimer.totalElapsed);
@@ -107,14 +110,15 @@ export function useGlobalTimer() {
       setPaused(globalTimer.paused);
       setTaskId(globalTimer.taskId);
       setTaskTitle(globalTimer.taskTitle);
+      setLastEnd(globalTimer.lastEnd);
     });
   }, []);
 
   // Backward compat: elapsed = segmentElapsed (for code that hasn't migrated)
-  return { elapsed: segmentElapsed, segmentElapsed, totalElapsed, running, paused, taskId, taskTitle };
+  return { elapsed: segmentElapsed, segmentElapsed, totalElapsed, running, paused, taskId, taskTitle, lastEnd };
 }
 
-export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, running, paused, onPause, onResume, onEndSegment, onStop }: {
+export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, running, paused, onPause, onResume, onEndSegment, onStop, onClose }: {
   taskTitle: string;
   segmentElapsed: number;
   totalElapsed: number;
@@ -127,12 +131,15 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
   onEndSegment: () => void;
   // onStop: fully stop the timer and exit fullscreen
   onStop: () => void;
+  // onClose: only close the fullscreen view WITHOUT stopping/pausing the timer (timer keeps running in background)
+  onClose: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [photoIdx, setPhotoIdx] = useState(() => Math.floor(Math.random() * STUDY_PHOTOS.length));
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [neteaseOpen, setNeteaseOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false); // guard against double-stop
 
@@ -162,18 +169,17 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
     }
   }, []);
 
-  // ESC exits fullscreen → stop timer via onStop (guarded against double-fire)
+  // ESC exits fullscreen → close the fullscreen view but KEEP the timer running in the background
   useEffect(() => {
     const onFsChange = () => {
-      // Only fire if we actually exited fullscreen AND haven't already stopped
+      // Only fire if we actually exited fullscreen (ESC / browser UI). Close the view, do NOT stop timing.
       if (!document.fullscreenElement && !stoppedRef.current) {
-        stoppedRef.current = true;
-        onStop();
+        onClose();
       }
     };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => { document.removeEventListener("fullscreenchange", onFsChange); };
-  }, [onStop]);
+  }, [onClose]);
 
   const nextPhoto = () => {
     setImgLoaded(false);
@@ -211,6 +217,22 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
         background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.35) 100%)",
         pointerEvents: "none",
       }} />
+
+      {/* 网易云播放面板（右侧，可开关） */}
+      {neteaseOpen && (
+        <div style={{
+          position: "absolute", top: "50%", right: "1.5rem", transform: "translateY(-50%)", zIndex: 3,
+          maxHeight: "85vh",
+        }}>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setNeteaseOpen(false)} title="关闭音乐"
+              style={{ position: "absolute", top: ".4rem", right: ".5rem", zIndex: 5, background: "rgba(255,255,255,.1)", border: "none", color: "#fff", width: 26, height: 26, borderRadius: "50%", cursor: "pointer", fontSize: ".85rem", lineHeight: 1 }}>
+              ×
+            </button>
+            <NeteasePlayer />
+          </div>
+        </div>
+      )}
 
       {/* Top-left small transparent total timer — always visible */}
       <div style={{
@@ -307,6 +329,13 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
           color: "#ddd", cursor: "pointer", backdropFilter: "blur(10px)",
           letterSpacing: ".05em",
         }}>结束本段</button>
+        {/* 退出全屏：仅关闭全屏视图，计时在后台继续 */}
+        <button onClick={onClose} style={{
+          padding: ".6rem 2rem", fontSize: ".9rem", borderRadius: "10px",
+          border: "1px solid rgba(255,255,255,.15)", background: "rgba(255,255,255,.05)",
+          color: "#ccc", cursor: "pointer", backdropFilter: "blur(10px)",
+          letterSpacing: ".05em",
+        }}>退出全屏</button>
         {/* 完全结束：停止计时并退出全屏 */}
         <button onClick={handleStop} style={{
           padding: ".6rem 2rem", fontSize: ".9rem", borderRadius: "10px",
@@ -320,6 +349,13 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
           color: "rgba(255,255,255,.4)", cursor: "pointer", backdropFilter: "blur(10px)",
           letterSpacing: ".05em",
         }}>换图</button>
+        <button onClick={() => { setNeteaseOpen(o => !o); poke(); }} style={{
+          padding: ".6rem 1.2rem", fontSize: ".9rem", borderRadius: "10px",
+          border: neteaseOpen ? "1px solid rgba(236,65,65,.6)" : "1px solid rgba(255,255,255,.1)",
+          background: neteaseOpen ? "rgba(236,65,65,.18)" : "rgba(255,255,255,.03)",
+          color: neteaseOpen ? "#ec4141" : "rgba(255,255,255,.4)", cursor: "pointer", backdropFilter: "blur(10px)",
+          letterSpacing: ".05em",
+        }} title="网易云音乐（搜索/播放/歌词）">音乐</button>
       </div>
     </div>
   );

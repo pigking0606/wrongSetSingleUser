@@ -540,7 +540,7 @@ export default function QuestionsPage() {
                   )}
                   {authed && <button className="btn" style={{ fontSize: ".8rem", color: "var(--text-muted)" }} onClick={() => handleReanalyze(q.id, "full")}>重解析全部</button>}
                   {authed && <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => handleReanalyze(q.id, "answer")}>重解析答案</button>}
-                  {authed && <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => startEdit(q)} disabled={editLoading}>编辑</button>}
+                  {authed && <Link className="btn" style={{ fontSize: ".8rem" }} href={`/questions/edit/${q.id}`}>编辑</Link>}
                   {authed && <button className="btn" style={{ fontSize: ".8rem", color: "var(--red-text)", marginLeft: "auto" }} onClick={() => handleDelete(q.id)}>删除</button>}
                 </div>
 

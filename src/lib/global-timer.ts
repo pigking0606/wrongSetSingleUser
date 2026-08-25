@@ -54,6 +54,27 @@ function triggerSave(action: "pause" | "stop" | "autosave" | "resume" | "start")
 let _taskId: number | null = null;
 let _taskTitle = "";
 
+// Last time the timer was fully stopped (persists across refresh via localStorage)
+const LAST_END_KEY = "wrongset:lastEnd";
+let _lastEnd: number | null = readStoredLastEnd();
+
+function readStoredLastEnd(): number | null {
+  try {
+    const v = parseInt(localStorage.getItem(LAST_END_KEY) || "", 10);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch { return null; }
+}
+function persistLastEnd(t: number | null) {
+  try {
+    if (t) localStorage.setItem(LAST_END_KEY, String(t));
+    else localStorage.removeItem(LAST_END_KEY);
+  } catch { /* */ }
+}
+function setLastEnd(t: number | null) {
+  _lastEnd = t;
+  persistLastEnd(t);
+}
+
 // Timer tick using recursive setTimeout to prevent callback stacking
 let _tickTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -78,6 +99,8 @@ export const globalTimer = {
   get paused() { return _paused; },
   get taskId() { return _taskId; },
   get taskTitle() { return _taskTitle; },
+  // Last time the timer was fully stopped (timestamp). Persists across refresh.
+  get lastEnd() { return _lastEnd; },
 
   // start: begin a new timing session for a task
   // fromSec = task's existing time_spent (becomes the initial total)
@@ -169,9 +192,13 @@ export const globalTimer = {
     _paused = false;
     _taskId = null;
     _taskTitle = "";
+    setLastEnd(Date.now());
     notify();
     return total;
   },
+
+  // Record/overwrite the "last timer end time" (during full stop after at least one timing session)
+  setLastEndValue(t: number | null) { setLastEnd(t); notify(); },
 
   setTask(id: number, title: string) { _taskId = id; _taskTitle = title; notify(); },
 
