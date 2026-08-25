@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { globalTimer } from "@/lib/global-timer";
-import { NeteasePlayer } from "@/lib/netease-player";
 
 const STUDY_PHOTOS = [
   "https://picsum.photos/id/1015/1920/1080",
@@ -139,7 +138,6 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [neteaseOpen, setNeteaseOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false); // guard against double-stop
 
@@ -217,22 +215,6 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
         background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.35) 100%)",
         pointerEvents: "none",
       }} />
-
-      {/* 网易云播放面板（右侧，可开关） */}
-      {neteaseOpen && (
-        <div style={{
-          position: "absolute", top: "50%", right: "1.5rem", transform: "translateY(-50%)", zIndex: 3,
-          maxHeight: "85vh",
-        }}>
-          <div style={{ position: "relative" }}>
-            <button onClick={() => setNeteaseOpen(false)} title="关闭音乐"
-              style={{ position: "absolute", top: ".4rem", right: ".5rem", zIndex: 5, background: "rgba(255,255,255,.1)", border: "none", color: "#fff", width: 26, height: 26, borderRadius: "50%", cursor: "pointer", fontSize: ".85rem", lineHeight: 1 }}>
-              ×
-            </button>
-            <NeteasePlayer />
-          </div>
-        </div>
-      )}
 
       {/* Top-left small transparent total timer — always visible */}
       <div style={{
@@ -349,13 +331,6 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
           color: "rgba(255,255,255,.4)", cursor: "pointer", backdropFilter: "blur(10px)",
           letterSpacing: ".05em",
         }}>换图</button>
-        <button onClick={() => { setNeteaseOpen(o => !o); poke(); }} style={{
-          padding: ".6rem 1.2rem", fontSize: ".9rem", borderRadius: "10px",
-          border: neteaseOpen ? "1px solid rgba(236,65,65,.6)" : "1px solid rgba(255,255,255,.1)",
-          background: neteaseOpen ? "rgba(236,65,65,.18)" : "rgba(255,255,255,.03)",
-          color: neteaseOpen ? "#ec4141" : "rgba(255,255,255,.4)", cursor: "pointer", backdropFilter: "blur(10px)",
-          letterSpacing: ".05em",
-        }} title="网易云音乐（搜索/播放/歌词）">音乐</button>
       </div>
     </div>
   );
