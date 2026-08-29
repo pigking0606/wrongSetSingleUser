@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 import { useAuth } from "@/lib/auth-gate";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
 import { IconFileText } from "@/lib/icons";
@@ -190,7 +191,7 @@ export default function ReviewPage() {
             </button>
             {showImage && (
               <div style={{ marginTop: ".5rem" }}>
-                <img src={`/api/image/${current.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "16rem", borderRadius: "6px" }} />
+                <img src={getImageUrl(current.image_path) || ""} alt="题目图" style={{ maxWidth: "100%", maxHeight: "16rem", borderRadius: "6px" }} />
               </div>
             )}
           </div>

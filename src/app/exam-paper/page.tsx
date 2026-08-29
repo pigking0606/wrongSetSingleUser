@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 
 interface ChapterNode { id: number; name: string; level: number; }
 interface PaperQuestion {
@@ -212,7 +213,7 @@ export default function ExamPaperPage() {
                           </button>
                           {shownImages.has(q.id) && (
                             <div style={{ marginTop: ".5rem" }}>
-                              <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "16rem", borderRadius: "6px" }} />
+                              <img src={getImageUrl(q.image_path) || ""} alt="题目图" style={{ maxWidth: "100%", maxHeight: "16rem", borderRadius: "6px" }} />
                             </div>
                           )}
                         </div>

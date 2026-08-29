@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 import { useAuth } from "@/lib/auth-gate";
 import { ExportPdfModal } from "@/lib/export-pdf-modal";
 import { IconFileText, IconCheck, IconX } from "@/lib/icons";
@@ -350,7 +351,7 @@ export default function DailyQuestionsPage() {
               </div>
 
               {q.image_path && shownImages.has(q.id) && (
-                <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px" }} />
+                <img src={getImageUrl(q.image_path) || ""} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px" }} />
               )}
 
               <div style={{ fontSize: ".9rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}><MathText text={q.ocr_text} splitOptions /></div>

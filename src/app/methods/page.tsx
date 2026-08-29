@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 import FlowchartEditor, { type FlowNode, type FlowEdge } from "@/lib/flowchart-editor";
 import FlowchartViewer from "@/lib/flowchart-viewer";
 
@@ -29,11 +30,9 @@ function parseImages(raw: string | null): string[] {
   return [raw];
 }
 
-// 将 /uploads/xxx.jpg 转为 /api/image/xxx.jpg，避免静态文件 404
+// 将图片路径转为前端可用 URL（OSS 完整 URL 直接返回，相对路径转 /api/image/）
 function toImageUrl(url: string): string {
-  if (!url) return "";
-  if (url.startsWith("/uploads/")) return `/api/image/${url.replace("/uploads/", "")}`;
-  return url;
+  return getImageUrl(url) || "";
 }
 
 type FormImage = { file: File | null; preview: string; url?: string };

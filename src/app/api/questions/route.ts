@@ -81,11 +81,18 @@ export async function GET(req: NextRequest) {
     conditions.push("q.chapter_id = ?");
     params.push(parseInt(chapterId));
   }
-  // Filter by status (e.g., "error", "pending", "ready")
+  // Filter by status (e.g., "error", "pending", "ready", or comma-separated "error,pending")
   const statusFilter = searchParams.get("status");
   if (statusFilter) {
-    conditions.push("q.status = ?");
-    params.push(statusFilter);
+    const statuses = statusFilter.split(",").map(s => s.trim()).filter(Boolean);
+    if (statuses.length === 1) {
+      conditions.push("q.status = ?");
+      params.push(statuses[0]);
+    } else if (statuses.length > 1) {
+      const placeholders = statuses.map(() => "?").join(",");
+      conditions.push(`q.status IN (${placeholders})`);
+      params.push(...statuses);
+    }
   }
   if (dateFrom) {
     conditions.push("q.created_at >= ?");

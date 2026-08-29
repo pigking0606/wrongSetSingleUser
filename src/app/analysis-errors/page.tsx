@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -44,7 +45,7 @@ export default function AnalysisErrorsPage() {
 
   const fetchErrors = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ status: "error", pageSize: "9999" });
+    const params = new URLSearchParams({ status: "error,pending", pageSize: "9999" });
     if (bankId) params.set("bank_id", String(bankId));
     if (subjectId) params.set("subject_id", String(subjectId));
     if (chapterL2Id) params.set("chapter_l2_id", String(chapterL2Id));
@@ -161,7 +162,7 @@ export default function AnalysisErrorsPage() {
 
               {/* 图片 */}
               {q.image_path && shownImages.has(q.id) && (
-                <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px" }} />
+                <img src={getImageUrl(q.image_path) || ""} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px" }} />
               )}
 
               {/* 操作 */}

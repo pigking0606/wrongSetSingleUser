@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 
 interface PaperQuestion {
   id: number; ocr_text: string; correct_answer: string; explanation: string | null;
@@ -170,7 +171,7 @@ export default function MockPaperDetailPage() {
 
                         {q.image_path && (
                           <div>
-                            <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "14rem", borderRadius: "6px" }} />
+                            <img src={getImageUrl(q.image_path) || ""} alt="题目图" style={{ maxWidth: "100%", maxHeight: "14rem", borderRadius: "6px" }} />
                           </div>
                         )}
 

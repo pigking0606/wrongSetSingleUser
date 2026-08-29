@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import MathText from "@/lib/math-text";
+import { getImageUrl } from "@/lib/image-url";
 import { useAuth } from "@/lib/auth-gate";
 import { useModal } from "@/lib/modal";
 
@@ -202,7 +203,7 @@ export default function QuestionEditPage() {
             <div style={{ fontSize: ".8rem", fontWeight: 600, color: "var(--text-muted)" }}>实时预览</div>
 
             {imagePath && (
-              <img src={`/api/image/${imagePath.replace('/uploads/', '')}`} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px", objectFit: "contain" }} />
+              <img src={getImageUrl(imagePath) || ""} alt="题目图" style={{ maxHeight: "10rem", borderRadius: "6px", objectFit: "contain" }} />
             )}
 
             <div style={{ padding: ".5rem .6rem", borderRadius: "6px", background: "var(--bg-hover)" }}>
