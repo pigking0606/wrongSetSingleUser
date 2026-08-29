@@ -25,8 +25,8 @@ BACKUP_NAME="wrongset-src-$(date +%Y%m%d-%H%M%S)-${GIT_HASH}.tar.gz"
 tar -czf "$BACKUP_DIR/$BACKUP_NAME" --exclude=node_modules --exclude=.next --exclude=public/uploads --exclude=.git . 2>/dev/null || true
 echo "==> source backup: $BACKUP_DIR/$BACKUP_NAME"
 
-echo "==> npm install..."
-npm install
+echo "==> npm ci (clean install, does not modify package-lock.json)..."
+npm ci
 
 # Note: MySQL schema is auto-created by initSchema() on app startup (CREATE TABLE IF NOT EXISTS).
 # The old SQLite-based db:init and seed:408 scripts are removed from deploy — they operated on

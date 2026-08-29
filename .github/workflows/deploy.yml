@@ -17,8 +17,10 @@ jobs:
           script: |
             REPO_DIR="/www/wwwroot/wrongset"
             if [ -d "$REPO_DIR/.git" ]; then
-              echo "==> git pull..."
+              echo "==> discarding local changes (npm may have modified package-lock.json)..."
               cd "$REPO_DIR"
+              git checkout -- . 2>/dev/null || true
+              echo "==> git pull..."
               git pull origin main
             else
               echo "==> git clone..."
