@@ -1,6 +1,6 @@
 # 考研错题自适应刷题系统
 
-基于 Next.js 16 的考研错题管理工具，支持拍照上传、AI 识别分类、多解法解析、LaTeX 数学渲染、艾宾浩斯自适应复习、每日学习计划、学习进度 AI 管理。
+基于 Next.js 16 的考研错题管理工具，支持拍照上传、AI 识别分类、多解法解析、LaTeX 数学渲染、艾宾浩斯自适应复习、每日学习计划、学习进度 AI 管理、模拟考试、错题分析。
 
 ## 开发规范
 
@@ -37,14 +37,18 @@
 | 每日小结 | `/plan` 内置编辑器，支持 AI 生成总结，按日期存储 | ✅ |
 | 设置中心 | `/settings` API Key 加密存储(AES-256-GCM) + 模型/URL 自定义 + 题库管理 | ✅ |
 | LaTeX 渲染 | KaTeX + 自动裸LaTeX包裹 + AI二次修复 + sanitize 管线（3层） | ✅ |
-| 部署 | PM2 + Nginx 反向代理 + 域名 066112.xyz + 自动/手动部署脚本 | ✅ |
+| 图片存储 | 阿里云 OSS（对象存储），上传自动转存 OSS，删除同步清理 | ✅ |
+| 模拟考试 | `/exam-paper` 自动组卷（选填+大题），错题组卷 + 跨章节均匀采样，支持打印（空白/答案版） | ✅ |
+| 模拟试卷管理 | `/mock-papers` 试卷列表，查看/打印/保存 | ✅ |
+| 错题分析 | `/analysis-errors` 分析失败/分析中的题目，支持筛选+批量重新解析 | ✅ |
+| 题目编辑 | `/questions/edit/[id]` 左侧编辑 + 右侧实时预览 | ✅ |
+| 解析方法 | `/methods` 多解法流程图（AI 生成 + 手动编辑）+ 流程图 SVG 展示 | ✅ |
+| 部署 | PM2 + Nginx 反向代理 + 域名 066112.xyz + 阿里云 OSS + GitHub Actions 自动部署 | ✅ |
 
 ### 待完成
 
 - [ ] 用户登录/注册
 - [ ] 复习提醒推送
-- [ ] 错题导出（PDF/打印）
-- [ ] 刷题模式（随机抽题/模拟考试）
 - [ ] 数据统计看板（正确率趋势/科目分布）
 - [ ] PWA 支持（离线访问）
 
@@ -86,6 +90,10 @@ DB_NAME=wrongset
 
 # 操作口令
 APP_PASSWORD=你的口令
+
+# 阿里云 OSS（图片存储）
+OSS_ACCESS_KEY_ID=你的OSS_Key
+OSS_ACCESS_KEY_SECRET=你的OSS_Secret
 ```
 
 ### 3. 初始化数据库
@@ -112,8 +120,13 @@ npm run dev
 | `/` | 首页，数据库状态 + 统计面板 + 导航入口 |
 | `/upload` | 拍照上传错题，框选裁剪，多页合并，AI 分析，LaTeX 渲染确认 |
 | `/questions` | 题库浏览，多级筛选，多题库切换，答案/解析隐藏，删除，AI 重新解析 |
+| `/questions/edit/[id]` | 题目编辑，左侧表单 + 右侧实时预览 |
 | `/review` | 每日复习，艾宾浩斯排期，对/错评分，科目/章节/题库筛选 |
 | `/plan` | 学习计划，每日任务 + 计时器 + AI 建议 + 每日小结 + 进度统计 |
+| `/exam-paper` | 模拟考试，自动组卷（选填+大题），错题组卷，打印（空白/答案版） |
+| `/mock-papers` | 已保存试卷列表，查看详情 + 打印 |
+| `/analysis-errors` | 错题分析，显示分析失败/分析中的题目，支持筛选+批量重新解析 |
+| `/methods` | 题目解析方法，AI 生成多解法流程图 + 手动编辑 + SVG 展示 |
 | `/settings` | 设置中心，API Key 管理，模型 URL 配置，题库创建/删除 |
 
 ---
@@ -158,9 +171,39 @@ npm run dev
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/upload` | 上传图片（multipart: image, user_answer, bank_id）→ 后台 AI 分析 |
+| POST | `/api/upload` | 上传图片（multipart: image, user_answer, bank_id）→ 后台 AI 分析，图片自动转存阿里云 OSS |
 | POST | `/api/reanalyze` | 重新 AI 分析 `{question_id, mode?:"answer"|"full", reason?}` |
-| GET | `/api/image/[filename]` | 获取上传的图片（带缓存头） |
+| GET | `/api/image/[filename]` | 获取上传的图片（带缓存头，仅兼容旧版本地图片） |
+
+### 模拟考试
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/exam-paper/generate` | 生成试卷 `{subject_id, bank_id?, question_count?}` |
+| GET | `/api/exam-paper/papers` | 获取已保存试卷列表 |
+| GET | `/api/exam-paper/papers/[id]` | 获取试卷详情（含题目） |
+| DELETE | `/api/exam-paper/papers/[id]` | 删除试卷 |
+
+### 分析错误管理
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/analysis-errors?status=&subject_id=&chapter_l2_id=&chapter_id=&bank_id=` | 获取分析错误/分析中的题目列表 |
+| POST | `/api/analysis-errors/reanalyze` | 批量重新解析 `{question_ids: number[]}` |
+
+### 解析方法
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/methods/[question_id]` | 获取题目解析方法（含流程图） |
+| PUT | `/api/methods/[question_id]` | 更新解析方法/流程图 |
+
+### 题目编辑
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/methods/[question_id]` | 获取题目解析方法 |
+| PUT | `/api/methods/[question_id]` | 更新解析方法 |
 
 ### 复习
 
@@ -264,17 +307,18 @@ public/
 ## 部署
 
 ### 服务器信息
-- **IP**: 43.134.234.119
+- **IP**: 117.72.207.156
 - **域名**: 066112.xyz (Cloudflare DNS)
 - **路径**: `/www/wwwroot/wrongset`
-- **PM2**: `wrongset` (端口 3000, mode: fork)
-- **Nginx**: 反向代理 `:3000`，`proxy_cache off`
+- **PM2**: `wrongset` (端口 50606, mode: fork)
+- **Nginx**: 反向代理 `:50606`，`proxy_cache off`
 - **数据库**: MySQL 8.0，端口 6603，库 `wrongset`，用户 `wrongset`
+- **图片存储**: 阿里云 OSS（bucket: `wrongset066112`，域名 `wrongset066112.oss-cn-beijing.aliyuncs.com`）
 
 ### 手动部署
 
 ```bash
-ssh -i legacy_key.pem root@43.134.234.119
+ssh -i wrongset_legacy_key.pem root@117.72.207.156
 cd /www/wwwroot/wrongset
 bash wrong.sh
 ```
@@ -284,6 +328,11 @@ bash wrong.sh
 ### 自动部署
 
 push 到 `main` 分支后，GitHub Actions 自动 SSH 到服务器执行 `wrong.sh`。
+
+需在 GitHub 仓库设置以下 Secrets：
+- `SSH_PRIVATE_KEY` — 服务器 SSH 密钥
+- `OSS_ACCESS_KEY_ID` — 阿里云 OSS AccessKey
+- `OSS_ACCESS_KEY_SECRET` — 阿里云 OSS AccessKey Secret
 
 ### 常用运维命令
 
