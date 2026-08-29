@@ -125,6 +125,51 @@ const REANALYZE_ANSWER_PROMPT = `你是考研命题审查专家，正在对之�
 - 行列式记号 |A| 写成纯文本，不要包进 $...$；只有含 LaTeX 命令的表达式才用 $...$
 - 上标下标必须用花括号：x^{2} 而非 x^2，x_{1} 而非 x_1`;
 
+/**
+ * 从 OSS 完整 URL 下载图片并转 base64（兼容阿里云 OSS 存储的 image_path）
+ * 返回 null 表示获取失败（网络错误 / 非 2xx / 非图片）。
+ */
+async function fetchImageFromUrl(url: string): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error(`[Reanalyze] fetch image failed: ${url} status=${resp.status}`);
+      return null;
+    }
+    const contentType = resp.headers.get("content-type") || "";
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length === 0) return null;
+    // 从 content-type 推断 mimeType；无法确定时按 URL 扩展名兜底
+    let mimeType = contentType.includes("image") ? contentType.split(";")[0] : "";
+    if (!mimeType) {
+      const ext = (url.split("?")[0].split(".").pop() || "").toLowerCase();
+      mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    }
+    return { base64: buf.toString("base64"), mimeType };
+  } catch (err) {
+    console.error(`[Reanalyze] fetch image error: ${url}`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * 读取服务器本地的相对路径图片（如 uploads/xxx.jpg），兼容旧数据。
+ * 返回 null 表示文件不存在。
+ */
+function readLocalImage(imagePath: string): { base64: string; mimeType: string } | null {
+  try {
+    const full = join(process.cwd(), "public", imagePath);
+    if (!existsSync(full)) return null;
+    const buf = readFileSync(full);
+    const ext = imagePath.split(".").pop()?.toLowerCase() || "jpg";
+    const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    return { base64: buf.toString("base64"), mimeType };
+  } catch (err) {
+    console.error(`[Reanalyze] read local image error: ${imagePath}`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 async function processReanalyze(
   questionId: number, ocrText: string, imagePath: string | null,
   apiKey: string, answerOnly: boolean, reason?: string
@@ -139,12 +184,13 @@ async function processReanalyze(
     } else {
       // Full reanalyze: always send the image if available, so the vision model re-OCRs the actual picture
       if (imagePath) {
-        const imgFullPath = join(process.cwd(), "public", imagePath);
-        if (existsSync(imgFullPath)) {
-          const imgBuffer = readFileSync(imgFullPath);
-          const base64 = imgBuffer.toString("base64");
-          const ext = imagePath.split(".").pop()?.toLowerCase() || "jpg";
-          const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+        // 支持 OSS 完整 URL（https://...）或本地相对路径（uploads/xxx.jpg）
+        const imgData = imagePath.startsWith("http")
+          ? await fetchImageFromUrl(imagePath)
+          : readLocalImage(imagePath);
+        if (imgData) {
+          const base64 = imgData.base64;
+          const mimeType = imgData.mimeType;
           const ocrContext = (ocrText && ocrText.length > 5 && !ocrText.includes("分析失败"))
             ? `题目的参考文本（可能存在格式错误，以图片为准）：\n${ocrText}`
             : "请分析图片中的题目，按 JSON 格式返回。";
@@ -160,7 +206,7 @@ async function processReanalyze(
           if (ocrText && ocrText.length > 5) {
             userMsg = { role: "user" as const, content: `请重新分析这道错题：\n\n${ocrText}` };
           } else {
-            console.error(`[Reanalyze] question=${questionId} 图片文件丢失且无OCR文本`);
+            console.error(`[Reanalyze] question=${questionId} 图片无法读取且无OCR文本`);
             await runAndSave("UPDATE questions SET status='error', error_reason=? WHERE id=?", ["图片文件丢失且无OCR文本", questionId]);
             return;
           }
