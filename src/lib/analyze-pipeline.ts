@@ -1,4 +1,3 @@
-import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { analyzeImageTwoStep, autoWrapMathDelimiters, normalizeDifficulty, AiAnalysisResult } from "@/lib/ai";
 import { queryOne, queryAll, runAndSave } from "@/lib/db";
@@ -24,13 +23,13 @@ export async function performAnalysis(questionId: number): Promise<Classificatio
     return null;
   }
 
-  const imgPath = join(process.cwd(), "public", q.image_path);
-  if (!existsSync(imgPath)) {
-    await runAndSave("UPDATE questions SET status='error', error_reason='图片文件丢失' WHERE id=?", [questionId]);
+  const imageUrl = q.image_path.startsWith("http") ? q.image_path : `${join(process.cwd(), "public", q.image_path)}`;
+  const imgResp = await fetch(imageUrl);
+  if (!imgResp.ok) {
+    await runAndSave("UPDATE questions SET status='error', error_reason='图片无法访问' WHERE id=?", [questionId]);
     return null;
   }
-
-  const imgBuffer = readFileSync(imgPath);
+  const imgBuffer = Buffer.from(await imgResp.arrayBuffer());
   const base64 = imgBuffer.toString("base64");
   const ext = q.image_path.split(".").pop()?.toLowerCase() || "jpg";
   const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";

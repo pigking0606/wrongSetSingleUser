@@ -43,7 +43,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const qId = parseInt(id);
 
   const q = await queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [qId]);
-  if (q?.image_path) deleteUploadFile(q.image_path);
+  if (q?.image_path) await deleteUploadFile(q.image_path);
 
   runAndSave("DELETE FROM questions WHERE id=?", [qId]);
   return NextResponse.json({ ok: true });

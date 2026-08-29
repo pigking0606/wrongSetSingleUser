@@ -43,7 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const oldSolution = parseImagePaths(old?.image_path ?? null);
   const deleteSolution = oldSolution.filter(u => !keepImages.includes(u));
   for (const url of deleteSolution) {
-    try { deleteUploadFile(url); } catch { /* ignore */ }
+    try { await deleteUploadFile(url); } catch { /* ignore */ }
   }
   // 新上传的解法图
   const newSolution: string[] = await collectImages(formData, /^image_\d+$/);
@@ -53,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const oldExample = parseImagePaths(old?.example_images ?? null);
   const deleteExample = oldExample.filter(u => !keepExampleImages.includes(u));
   for (const url of deleteExample) {
-    try { deleteUploadFile(url); } catch { /* ignore */ }
+    try { await deleteUploadFile(url); } catch { /* ignore */ }
   }
   // 新上传的例题图
   const newExample: string[] = await collectImages(formData, /^example_image_\d+$/);
@@ -109,7 +109,7 @@ async function processAndSaveImage(file: File): Promise<string> {
     .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 85 })
     .toBuffer() as unknown as Buffer;
-  const saved = saveUploadData(finalBuffer as Buffer, ".jpg");
+  const saved = await saveUploadData(finalBuffer as Buffer, ".jpg");
   return saved.publicUrl;
 }
 
@@ -125,13 +125,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   // 清理解法图
   if (row?.image_path) {
     for (const url of parseImagePaths(row.image_path)) {
-      try { deleteUploadFile(url); } catch { /* ignore */ }
+      try { await deleteUploadFile(url); } catch { /* ignore */ }
     }
   }
   // 清理例题图
   if (row?.example_images) {
     for (const url of parseImagePaths(row.example_images)) {
-      try { deleteUploadFile(url); } catch { /* ignore */ }
+      try { await deleteUploadFile(url); } catch { /* ignore */ }
     }
   }
   await runAndSave("DELETE FROM solution_methods WHERE id=?", [id]);

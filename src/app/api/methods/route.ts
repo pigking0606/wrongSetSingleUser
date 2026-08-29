@@ -121,6 +121,6 @@ async function processAndSaveImage(file: File): Promise<string> {
     .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 85 })
     .toBuffer() as unknown as Buffer;
-  const saved = saveUploadData(finalBuffer as Buffer, ".jpg");
+  const saved = await saveUploadData(finalBuffer as Buffer, ".jpg");
   return saved.publicUrl;
 }

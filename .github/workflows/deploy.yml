@@ -11,7 +11,7 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: 43.134.234.119
+          host: 117.72.207.156
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
@@ -25,5 +25,16 @@ jobs:
               git clone https://github.com/pigking0606/wrongSetSingleUser.git "$REPO_DIR"
               cd "$REPO_DIR"
             fi
+
+            # Write .env file with OSS credentials (preserve existing, add/update OSS keys)
+            if [ ! -f .env ]; then
+              cp .env.local .env 2>/dev/null || touch .env
+            fi
+            # Update OSS credentials in .env
+            sed -i '/^OSS_ACCESS_KEY_ID=/d' .env 2>/dev/null || true
+            sed -i '/^OSS_ACCESS_KEY_SECRET=/d' .env 2>/dev/null || true
+            echo "OSS_ACCESS_KEY_ID=${{ secrets.OSS_ACCESS_KEY_ID }}" >> .env
+            echo "OSS_ACCESS_KEY_SECRET=${{ secrets.OSS_ACCESS_KEY_SECRET }}" >> .env
+
             echo "==> running deploy script..."
             bash wrong.sh

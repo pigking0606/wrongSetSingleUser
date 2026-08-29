@@ -208,7 +208,7 @@ export async function DELETE(req: NextRequest) {
   // Clean up image file
   const q = await queryOne<{ image_path: string | null }>("SELECT image_path FROM questions WHERE id=?", [id]);
   if (q?.image_path) {
-    try { deleteUploadFile(q.image_path); } catch { /* ignore */ }
+    try { await deleteUploadFile(q.image_path); } catch { /* ignore */ }
   }
 
   runAndSave("DELETE FROM review_records WHERE question_id=?", [id]);

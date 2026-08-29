@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`[UPLOAD] resized=${(finalBuffer.length / 1024).toFixed(0)}KB`);
 
-    const saved = saveUploadData(finalBuffer as Buffer, ".jpg");
+    const saved = await saveUploadData(finalBuffer as Buffer, ".jpg");
     publicUrl = saved.publicUrl;
 
     // chapter_id 用 NULL：用户上传时未选章节，由 AI 分析后回填（performAnalysis 中 UPDATE chapter_id=?）
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const questionId = row?.id ?? 0;
     if (!questionId) {
       // INSERT 失败的兜底（理论上 runAndSave 抛异常会进 catch，此处以防万一）
-      if (publicUrl) try { deleteUploadFile(publicUrl); } catch { /* ignore */ }
+      if (publicUrl) try { await deleteUploadFile(publicUrl); } catch { /* ignore */ }
       return NextResponse.json({ error: "入库失败" }, { status: 500 });
     }
 
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, question_id: questionId });
   } catch (err) {
-    if (publicUrl) try { deleteUploadFile(publicUrl); } catch { /* ignore */ }
+    if (publicUrl) try { await deleteUploadFile(publicUrl); } catch { /* ignore */ }
     if (err instanceof UploadError)
       return NextResponse.json({ error: err.message }, { status: err.status });
     console.error("Upload error:", err);
