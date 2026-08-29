@@ -28,6 +28,8 @@ export default function MockPaperDetailPage() {
   const [showAnswers, setShowAnswers] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // 打印模式：blank=留空试卷（无答案），full=含答案，answers=答案单独打印
+  const [printMode, setPrintMode] = useState<"blank" | "full" | "answers">("blank");
 
   const load = async () => {
     setLoading(true);
@@ -91,7 +93,13 @@ export default function MockPaperDetailPage() {
       {/* 工具栏（打印时隐藏） */}
       <div className="no-print" style={{ display: "flex", alignItems: "center", gap: ".75rem", flexWrap: "wrap" }}>
         <button className="btn" style={{ fontSize: ".85rem" }} onClick={() => router.back()}>← 返回</button>
-        <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={() => window.print()}>打印试卷</button>
+        <button className="btn btn-primary" style={{ fontSize: ".85rem" }} onClick={() => window.print()}>打印</button>
+        {/* 打印模式选择 */}
+        <select value={printMode} onChange={e => setPrintMode(e.target.value as "blank" | "full" | "answers")} style={{ fontSize: ".8rem" }}>
+          <option value="blank">试卷留空（无答案）</option>
+          <option value="full">试卷含答案</option>
+          <option value="answers">答案单独打印</option>
+        </select>
         <button className="btn" style={{ fontSize: ".85rem" }} onClick={() => setShowAnswers(a => !a)}>
           {showAnswers ? "隐藏答案" : "显示答案"}
         </button>
@@ -119,68 +127,95 @@ export default function MockPaperDetailPage() {
           <div className="card" style={{ textAlign: "center", padding: "1.25rem" }}>
             <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{title || "错题模拟卷"}</div>
             <div style={{ fontSize: ".8rem", color: "var(--text-muted)", marginTop: ".25rem" }}>
-              共 {sections.reduce((s, x) => s + x.questions.length, 0)} 题 · 满分 {totalScore} 分
+              {printMode === "answers" ? "答案" : ""}共 {sections.reduce((s, x) => s + x.questions.length, 0)} 题 · 满分 {totalScore} 分
               {subjectName && <span> · {subjectName}</span>}
             </div>
           </div>
 
-          {sections.map(section => {
-            if (section.questions.length === 0) return null;
-            return (
-              <div key={section.type} className="card print-area" style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
-                <div style={{ fontWeight: 700, fontSize: "1rem" }}>{section.label}</div>
-
-                {section.questions.map(q => {
+          {/* 答案单独打印模式：只显示答案列表 */}
+          {printMode === "answers" ? (
+            <div className="card print-area" style={{ display: "flex", flexDirection: "column", gap: ".5rem" }}>
+              <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: ".5rem" }}>答案</div>
+              {sections.map(section => {
+                if (section.questions.length === 0) return null;
+                return section.questions.map(q => {
                   qNo += 1;
-                  const rec = answers[q.id] || { myAnswer: "", correctness: null };
                   return (
-                    <div key={q.id} style={{ borderTop: "1px solid var(--border)", paddingTop: ".75rem", display: "flex", flexDirection: "column", gap: ".5rem" }}>
-                      {/* 题干（打印内容） */}
-                      <div style={{ fontSize: ".95rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                        <span style={{ fontWeight: 600, marginRight: ".25rem" }}>{qNo}.</span>
-                        <MathText text={q.ocr_text} splitOptions />
-                      </div>
-
-                      {q.image_path && (
-                        <div>
-                          <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "14rem", borderRadius: "6px" }} />
-                        </div>
-                      )}
-
-                      {/* 答题空间（打印专用） */}
-                      {section.type === "solve" && (
-                        <div style={{ minHeight: "6rem", border: "1px dashed var(--border)", borderRadius: "6px", marginTop: ".25rem" }} />
-                      )}
-
-                      {/* 答案+对错标记（打印时隐藏） */}
-                      <div className="no-print" style={{ display: "flex", flexDirection: "column", gap: ".4rem", marginTop: ".25rem" }}>
-                        {showAnswers && (
-                          <div style={{ padding: ".5rem .75rem", borderRadius: "6px", background: "var(--green-bg)", color: "var(--green-text)", fontSize: ".875rem" }}>
-                            答案：<MathText text={q.correct_answer} />
-                            {q.user_answer && <span style={{ marginLeft: ".5rem", fontSize: ".75rem", color: "var(--text-muted)" }}>(你曾答：<MathText text={q.user_answer} />)</span>}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap", background: "var(--bg-hover)", padding: ".5rem .75rem", borderRadius: "6px" }}>
-                          <label style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>在校对答案</label>
-                          <input
-                            value={rec.myAnswer}
-                            onChange={e => setAns(q.id, { myAnswer: e.target.value })}
-                            placeholder="本题作答"
-                            style={{ flex: 1, minWidth: "6rem", fontSize: ".85rem", boxSizing: "border-box" }}
-                          />
-                          <button className="btn" style={{ fontSize: ".8rem", color: rec.correctness === "wrong" ? "var(--red-text)" : "var(--text-muted)", border: rec.correctness === "wrong" ? "1px solid var(--red-text)" : undefined }} onClick={() => setAns(q.id, { correctness: "wrong" })}>答错</button>
-                          <button className="btn" style={{ fontSize: ".8rem", color: rec.correctness === "correct" ? "var(--green-text)" : "var(--text-muted)", border: rec.correctness === "correct" ? "1px solid var(--green-text)" : undefined }} onClick={() => setAns(q.id, { correctness: "correct" })}>答对</button>
-                          {(rec.correctness || rec.myAnswer) && (
-                            <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => setAns(q.id, { myAnswer: "", correctness: null })}>清除</button>
-                          )}
-                        </div>
-                      </div>
+                    <div key={q.id} style={{ display: "flex", gap: ".5rem", fontSize: ".9rem", lineHeight: 1.6, padding: ".3rem 0", borderTop: "1px solid var(--border)" }}>
+                      <span style={{ fontWeight: 600, flexShrink: 0 }}>{qNo}.</span>
+                      <span><MathText text={q.correct_answer} /></span>
                     </div>
                   );
-                })}
-              </div>
-            );
-          })}
+                });
+              })}
+            </div>
+          ) : (
+            /* 试卷模式：显示题目（留空或含答案） */
+            sections.map(section => {
+              if (section.questions.length === 0) return null;
+              return (
+                <div key={section.type} className="card print-area" style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "1rem" }}>{section.label}</div>
+
+                  {section.questions.map(q => {
+                    qNo += 1;
+                    const rec = answers[q.id] || { myAnswer: "", correctness: null };
+                    return (
+                      <div key={q.id} style={{ borderTop: "1px solid var(--border)", paddingTop: ".75rem", display: "flex", flexDirection: "column", gap: ".5rem" }}>
+                        {/* 题干（打印内容） */}
+                        <div style={{ fontSize: ".95rem", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                          <span style={{ fontWeight: 600, marginRight: ".25rem" }}>{qNo}.</span>
+                          <MathText text={q.ocr_text} splitOptions />
+                        </div>
+
+                        {q.image_path && (
+                          <div>
+                            <img src={`/api/image/${q.image_path.replace('/uploads/', '')}`} alt="题目图" style={{ maxWidth: "100%", maxHeight: "14rem", borderRadius: "6px" }} />
+                          </div>
+                        )}
+
+                        {/* 答题空间：留空模式或含答案模式下的大题都显示 */}
+                        {section.type === "solve" && (
+                          <div className="print-blank-space" style={{ minHeight: "6rem", border: "1px dashed var(--border)", borderRadius: "6px", marginTop: ".25rem" }} />
+                        )}
+
+                        {/* 含答案模式：打印时显示答案 */}
+                        {printMode === "full" && (
+                          <div className="print-answer" style={{ padding: ".5rem .75rem", borderRadius: "6px", background: "var(--green-bg)", color: "var(--green-text)", fontSize: ".875rem" }}>
+                            答案：<MathText text={q.correct_answer} />
+                          </div>
+                        )}
+
+                        {/* 校对控件（打印时隐藏） */}
+                        <div className="no-print" style={{ display: "flex", flexDirection: "column", gap: ".4rem", marginTop: ".25rem" }}>
+                          {showAnswers && (
+                            <div style={{ padding: ".5rem .75rem", borderRadius: "6px", background: "var(--green-bg)", color: "var(--green-text)", fontSize: ".875rem" }}>
+                              答案：<MathText text={q.correct_answer} />
+                              {q.user_answer && <span style={{ marginLeft: ".5rem", fontSize: ".75rem", color: "var(--text-muted)" }}>(你曾答：<MathText text={q.user_answer} />)</span>}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", alignItems: "center", gap: ".5rem", flexWrap: "wrap", background: "var(--bg-hover)", padding: ".5rem .75rem", borderRadius: "6px" }}>
+                            <label style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>在校对答案</label>
+                            <input
+                              value={rec.myAnswer}
+                              onChange={e => setAns(q.id, { myAnswer: e.target.value })}
+                              placeholder="本题作答"
+                              style={{ flex: 1, minWidth: "6rem", fontSize: ".85rem", boxSizing: "border-box" }}
+                            />
+                            <button className="btn" style={{ fontSize: ".8rem", color: rec.correctness === "wrong" ? "var(--red-text)" : "var(--text-muted)", border: rec.correctness === "wrong" ? "1px solid var(--red-text)" : undefined }} onClick={() => setAns(q.id, { correctness: "wrong" })}>答错</button>
+                            <button className="btn" style={{ fontSize: ".8rem", color: rec.correctness === "correct" ? "var(--green-text)" : "var(--text-muted)", border: rec.correctness === "correct" ? "1px solid var(--green-text)" : undefined }} onClick={() => setAns(q.id, { correctness: "correct" })}>答对</button>
+                            {(rec.correctness || rec.myAnswer) && (
+                              <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => setAns(q.id, { myAnswer: "", correctness: null })}>清除</button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })
+          )}
         </>
       )}
 

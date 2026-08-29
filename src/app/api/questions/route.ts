@@ -81,6 +81,12 @@ export async function GET(req: NextRequest) {
     conditions.push("q.chapter_id = ?");
     params.push(parseInt(chapterId));
   }
+  // Filter by status (e.g., "error", "pending", "ready")
+  const statusFilter = searchParams.get("status");
+  if (statusFilter) {
+    conditions.push("q.status = ?");
+    params.push(statusFilter);
+  }
   if (dateFrom) {
     conditions.push("q.created_at >= ?");
     params.push(dateFrom);

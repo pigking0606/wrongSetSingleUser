@@ -526,7 +526,7 @@ export default function QuestionsPage() {
                     }}>
                       {reviewed[q.id] === "correct" ? <IconCheck size={16} /> : <IconX size={16} />}
                     </span>
-                  ) : (
+                  ) : authed ? (
                     <>
                       <button className="btn" style={{ fontSize: ".8rem", display: "inline-flex", alignItems: "center" }}
                         onClick={() => handleReview(q, false)} title="答错">
@@ -537,7 +537,7 @@ export default function QuestionsPage() {
                         <IconCheck size={16} />
                       </button>
                     </>
-                  )}
+                  ) : null}
                   {authed && <button className="btn" style={{ fontSize: ".8rem", color: "var(--text-muted)" }} onClick={() => handleReanalyze(q.id, "full")}>重解析全部</button>}
                   {authed && <button className="btn" style={{ fontSize: ".8rem" }} onClick={() => handleReanalyze(q.id, "answer")}>重解析答案</button>}
                   {authed && <Link className="btn" style={{ fontSize: ".8rem" }} href={`/questions/edit/${q.id}`}>编辑</Link>}

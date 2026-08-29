@@ -122,6 +122,8 @@ export default function Home() {
           { href: "/daily-questions", title: "每日新题", desc: "当日新增错题汇总", icon: <IconList size={20} /> },
           { href: "/methods", title: "题型解法", desc: "按分类整理解题方法", icon: <IconBook size={20} /> },
           { href: "/exam-paper", title: "错题拼卷", desc: "自动拼考研模拟卷", icon: <IconFileText size={20} /> },
+          { href: "/mock-papers", title: "已存试卷", desc: "打印 / 校对 / 更新正误", icon: <IconFileText size={20} /> },
+          { href: "/analysis-errors", title: "解析失败", desc: "查看失败题目并重解析", icon: <IconRefresh size={20} /> },
         ].map(item => (
           <Link key={item.href} href={item.href} className="card" style={{ textDecoration: "none", transition: "transform .15s" }}>
             <div style={{ marginBottom: ".35rem" }}>{item.icon}</div>
