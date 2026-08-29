@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [newBankName, setNewBankName] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  // 当前部署版本号（来自构建时打包的 app-version.ts），用于确认服务器上的代码是否已更新
+  const [appVersion, setAppVersion] = useState("");
   // 测试连接状态：每个模型独立。result 为 null=未测，{ok,message,error,detail,elapsed}=已测
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [testResult, setTestResult] = useState<Record<string, null | { ok: boolean; message?: string; error?: string; detail?: string; elapsed?: number }>>({});
@@ -52,6 +54,10 @@ export default function SettingsPage() {
       setSchedExcludes(Array.isArray(d.analyzeScheduleExcludes) ? d.analyzeScheduleExcludes : []);
       setLoading(false);
     }).catch(() => setLoading(false));
+    // 读取当前部署版本号
+    fetch("/api/version", { cache: "no-store" }).then(r => r.json()).then(d => {
+      if (d.appVersion) setAppVersion(d.appVersion);
+    }).catch(() => {});
   }, []);
 
   const save = async () => {
@@ -108,6 +114,17 @@ export default function SettingsPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <h1 style={{ fontSize: "1.25rem", fontWeight: 700 }}>API 设置</h1>
+
+      {/* 当前部署版本号 */}
+      <div className="card" style={{ display: "flex", alignItems: "center", gap: ".5rem", padding: ".6rem .9rem" }}>
+        <span style={{ fontSize: ".85rem", color: "var(--text-muted)" }}>当前版本</span>
+        <span style={{ fontSize: ".85rem", fontWeight: 600, color: "var(--green-text)", fontVariantNumeric: "tabular-nums" }}>
+          {appVersion || "未知"}
+        </span>
+        <span style={{ fontSize: ".7rem", color: "var(--text-muted)" }}>
+          （版本号在每次提交更新 src/lib/app-version.ts）
+        </span>
+      </div>
 
       {/* OCR / Vision Model */}
       <div className="card">
