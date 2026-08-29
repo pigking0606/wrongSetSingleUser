@@ -23,8 +23,8 @@ jobs:
               echo "==> git pull..."
               git pull origin main
             else
-              echo "==> git clone..."
-              git clone https://github.com/pigking0606/wrongSetSingleUser.git "$REPO_DIR"
+              echo "==> git clone (from Gitee mirror)..."
+              git clone https://gitee.com/pigking0606/wrongSetSingleUser.git "$REPO_DIR"
               cd "$REPO_DIR"
             fi
 
