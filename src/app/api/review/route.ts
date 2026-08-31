@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
 
   const d = new Date();
   const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const todayPlus3 = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()+3).padStart(2,"0")}`;
+  // 用 setDate 计算 +3 天，避免 getDate()+3 在月末/年底产生如 "2026-08-34" 的无效日期
+  const plus3 = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 3);
+  const todayPlus3 = `${plus3.getFullYear()}-${String(plus3.getMonth()+1).padStart(2,"0")}-${String(plus3.getDate()).padStart(2,"0")}`;
   const conditions: string[] = [];
   const condParams: (string | number)[] = [];
 

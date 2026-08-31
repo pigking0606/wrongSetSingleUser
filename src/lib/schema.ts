@@ -130,27 +130,38 @@ export async function initSchema() {
     }
   }
 
-  // questions.chapter_id 迁移：NOT NULL → NULL + 外键 ON DELETE CASCADE → ON DELETE SET NULL
+  // questions.chapter_id 迁移：允许 NULL + 外键 ON DELETE SET NULL
   // 上传时 chapter_id 暂为 NULL（用户未选章节），AI 分析后回填；删除章节时题目保留不被级联删除
-  // 步骤：1. 查现有外键 2. DROP 外键 3. MODIFY 允许 NULL 4. ADD 新外键（ON DELETE SET NULL）
+  // 幂等守卫：仅当"列非 NULL"或"外键非 SET NULL"时才执行 DDL，避免每个请求反复 DROP/ADD 外键
+  // （反复 DDL 会持有 questions 元数据锁，导致题库等页面多次接口调用串行、明显变慢）
   try {
+    const nullability = await queryAll<{ IS_NULLABLE: string }>(
+      `SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'questions' AND COLUMN_NAME = 'chapter_id'`
+    );
+    const chapterIdNullable = nullability.length > 0 && nullability[0].IS_NULLABLE === 'YES';
     const fks = await queryAll<{ CONSTRAINT_NAME: string; DELETE_RULE: string }>(
       `SELECT rc.CONSTRAINT_NAME, rc.DELETE_RULE
        FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
        WHERE rc.CONSTRAINT_SCHEMA = DATABASE() AND rc.TABLE_NAME = 'questions'`
     );
-    for (const fk of fks) {
+    const hasSetNullFk = fks.some(fk => fk.DELETE_RULE === 'SET NULL');
+    if (chapterIdNullable && hasSetNullFk) {
+      // 已满足所需状态，跳过 DDL
+    } else {
+      for (const fk of fks) {
+        try {
+          await db.execute(`ALTER TABLE questions DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
+        } catch (e) { /* 静默：外键可能已不存在 */ }
+      }
+      try { await db.execute("ALTER TABLE questions MODIFY COLUMN chapter_id INT NULL"); } catch (e) { /* 静默 */ }
       try {
-        await db.execute(`ALTER TABLE questions DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
-      } catch (e) { /* 静默：外键可能已不存在 */ }
-    }
-    try { await db.execute("ALTER TABLE questions MODIFY COLUMN chapter_id INT NULL"); } catch (e) { /* 静默 */ }
-    try {
-      await db.execute("ALTER TABLE questions ADD CONSTRAINT questions_chapter_fk FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL");
-    } catch (e) {
-      const msg = (e as Error).message || "";
-      // 1826 = Duplicate foreign key constraint exists — 期望，可忽略
-      if (!/Duplicate foreign key|1826/i.test(msg)) console.error("[migration] questions FK add error:", msg);
+        await db.execute("ALTER TABLE questions ADD CONSTRAINT questions_chapter_fk FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE SET NULL");
+      } catch (e) {
+        const msg = (e as Error).message || "";
+        // 1826 = Duplicate foreign key constraint exists — 期望，可忽略
+        if (!/Duplicate foreign key|1826/i.test(msg)) console.error("[migration] questions FK add error:", msg);
+      }
     }
   } catch (e) {
     console.error("[migration] questions FK migration error:", (e as Error).message);
