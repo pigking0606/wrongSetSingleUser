@@ -29,8 +29,9 @@ jobs:
           fi
           git config --global user.email "actions@users.noreply.github.com"
           git config --global user.name "GitHub Actions"
-          # 用 Basic 请求头携带 token，避免把 token 拼进 URL 触发 git "credential url cannot be parsed"
-          git remote add gitee "https://gitee.com/pigking0606/wrongSetSingleUser.git"
-          AUTH=$(printf '%s:%s' "pigking0606" "$GITEE_TOKEN" | base64 | tr -d '\n')
-          git -c "http.extraheader=Authorization: Basic ${AUTH}" push gitee main 2>&1
+          # 把 token 拼进 URL 前先去掉空白/换行：GitHub Secret 若带尾随换行会让 git 报
+          # "credential url cannot be parsed"，之前本 step 正是因此失败
+          TOKEN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n ')
+          git remote add gitee "https://pigking0606:${TOKEN}@gitee.com/pigking0606/wrongSetSingleUser.git"
+          git push gitee main 2>&1
           echo "Gitee 同步完成"
