@@ -1,0 +1,26 @@
+name: Sync Gitee to GitHub
+
+on:
+  schedule:
+    # 每 10 分钟从 Gitee 同步一次到 GitHub（Gitee 为公开仓库，无需凭据拉取）
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # 支持手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current GitHub main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Fetch and sync from Gitee
+        run: |
+          git remote add gitee https://gitee.com/pigking0606/wrongSetSingleUser.git || true
+          git fetch gitee main
+          git checkout -B main gitee/main
+          git push origin main --force-with-lease
