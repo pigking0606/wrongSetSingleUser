@@ -28,7 +28,7 @@ jobs:
               cd "$REPO_DIR"
             fi
 
-            # Write .env file with OSS credentials (preserve existing, add/update OSS keys)
+            # Write .env file with credentials (preserve existing, add/update)
             if [ ! -f .env ]; then
               cp .env.local .env 2>/dev/null || touch .env
             fi
@@ -37,6 +37,20 @@ jobs:
             sed -i '/^OSS_ACCESS_KEY_SECRET=/d' .env 2>/dev/null || true
             echo "OSS_ACCESS_KEY_ID=${{ secrets.OSS_ACCESS_KEY_ID }}" >> .env
             echo "OSS_ACCESS_KEY_SECRET=${{ secrets.OSS_ACCESS_KEY_SECRET }}" >> .env
+            # WebHook 部署密钥（Gitee WebHook 验证用，可选）
+            if [ -n "${{ secrets.DEPLOY_WEBHOOK_SECRET }}" ]; then
+              sed -i '/^DEPLOY_WEBHOOK_SECRET=/d' .env 2>/dev/null || true
+              echo "DEPLOY_WEBHOOK_SECRET=${{ secrets.DEPLOY_WEBHOOK_SECRET }}" >> .env
+            fi
+            # GitHub PAT（用于部署后同步到 GitHub，可选）
+            if [ -n "${{ secrets.GITHUB_PAT }}" ]; then
+              sed -i '/^GITHUB_PAT=/d' .env 2>/dev/null || true
+              echo "GITHUB_PAT=${{ secrets.GITHUB_PAT }}" >> .env
+            fi
+
+            echo "==> deploying webhook script..."
+            cp wrong-deploy-webhook.sh /www/wwwroot/wrongset/wrong-deploy-webhook.sh 2>/dev/null || true
+            chmod +x /www/wwwroot/wrongset/wrong-deploy-webhook.sh 2>/dev/null || true
 
             echo "==> running deploy script..."
             bash wrong.sh
