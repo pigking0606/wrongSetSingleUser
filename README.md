@@ -43,7 +43,7 @@
 | 错题分析 | `/analysis-errors` 分析失败/分析中的题目，支持筛选+批量重新解析 | ✅ |
 | 题目编辑 | `/questions/edit/[id]` 左侧编辑 + 右侧实时预览 | ✅ |
 | 解析方法 | `/methods` 多解法流程图（AI 生成 + 手动编辑）+ 流程图 SVG 展示 | ✅ |
-| 部署 | PM2 + Nginx 反向代理 + 域名 066112.xyz + 阿里云 OSS + GitHub Actions 自动部署 | ✅ |
+| 部署 | deploy.sh 手动部署（SSH → bash deploy.sh） | ✅ |
 
 ### 待完成
 
@@ -315,24 +315,25 @@ public/
 - **数据库**: MySQL 8.0，端口 6603，库 `wrongset`，用户 `wrongset`
 - **图片存储**: 阿里云 OSS（bucket: `wrongset066112`，域名 `wrongset066112.oss-cn-beijing.aliyuncs.com`）
 
-### 手动部署
+### 手动部署（当前流程）
 
 ```bash
-ssh -i wrongset_legacy_key.pem root@117.72.207.156
-cd /www/wwwroot/wrongset
-bash wrong.sh
+ssh -i 你的密钥.pem root@117.72.207.156
+bash /www/wwwroot/wrongset/deploy.sh
 ```
 
-`wrong.sh` 执行流程：备份数据库 → git pull → npm install → db:init → seed:408 → build → pm2 restart
+`deploy.sh` 执行流程：git checkout -- . → git pull → bash wrong.sh（备份 + npm ci + build + pm2 restart）
 
-### 自动部署
+### 自动部署（已废弃）
 
-push 到 `main` 分支后，GitHub Actions 自动 SSH 到服务器执行 `wrong.sh`。
+~~push 到 `main` 分支后，GitHub Actions 自动 SSH 到服务器执行部署。~~
 
-需在 GitHub 仓库设置以下 Secrets：
-- `SSH_PRIVATE_KEY` — 服务器 SSH 密钥
-- `OSS_ACCESS_KEY_ID` — 阿里云 OSS AccessKey
-- `OSS_ACCESS_KEY_SECRET` — 阿里云 OSS AccessKey Secret
+~~需在 GitHub 仓库设置以下 Secrets：~~
+- ~~`SSH_PRIVATE_KEY` — 服务器 SSH 密钥~~
+- ~~`OSS_ACCESS_KEY_ID` — 阿里云 OSS AccessKey~~
+- ~~`OSS_ACCESS_KEY_SECRET` — 阿里云 OSS AccessKey Secret~~
+
+> 注意：GitHub Actions 自动部署已废弃。后续部署流程：本地 push → SSH 到服务器 → `bash /www/wwwroot/wrongset/deploy.sh`
 
 ### 常用运维命令
 
