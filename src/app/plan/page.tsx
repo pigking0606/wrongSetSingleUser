@@ -8,6 +8,7 @@ import {
   IconChevronLeft, IconChevronRight, IconPlus, IconX, IconCheck, IconAlert,
 } from "@/lib/icons";
 import { useGlobalTimer, StudyFullscreen } from "@/lib/study-timer";
+import RestTimer from "@/lib/rest-timer";
 import { useAuth } from "@/lib/auth-gate";
 import { globalTimer } from "@/lib/global-timer";
 
@@ -1064,6 +1065,9 @@ export default function PlanPage() {
       <Link href="/" style={{ fontSize: ".875rem", color: "var(--text-muted)", textDecoration: "none", textAlign: "center", paddingBottom: "1rem" }}>
         &larr; 返回首页
       </Link>
+
+      {/* Rest timer */}
+      <RestTimer />
 
       {/* Fullscreen study timer */}
       {showFullscreen && (
