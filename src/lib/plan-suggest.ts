@@ -247,15 +247,17 @@ JSON格式（chapter_id 一律填 null，系统统一置空，不按章节分类
 
   console.log(`[ai-suggest][${batchId}] model=${model} url=${apiUrl} promptLen=${prompt.length}`);
 
+  // kimi-k3 等部分模型不支持 temperature 参数，需要跳过
+  const skipTemp = /kimi/i.test(model);
   const body: any = {
     model,
     max_tokens: 16384,
-    temperature: 0.3,
     messages: [
       { role: "system", content: "你是任务规划助手。思考过程可以内部进行。输出的第一个字符必须是 `{`，最后一个字符必须是 `}`，中间是完整的 JSON。禁止在 JSON 前后输出任何文字。" },
       { role: "user", content: prompt },
     ],
   };
+  if (!skipTemp) body.temperature = 0.3;
   if (!model.startsWith("deepseek")) body.response_format = { type: "json_object" };
   const resp = await fetch(apiUrl, {
     method: "POST",

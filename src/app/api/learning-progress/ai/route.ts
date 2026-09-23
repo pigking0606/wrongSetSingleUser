@@ -90,13 +90,14 @@ ${content || "暂无"}
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 120000); // 120s：思考型模型需要更长推理时间
     const model = await loadSetting("text_model", "TEXT_MODEL") || "deepseek-chat";
+    // kimi-k3 等部分模型不支持 temperature 参数
+    const skipTemp = /kimi/i.test(model);
+    const body: any = { model, max_tokens: 1536, messages: [{ role: "user", content: prompt }] };
+    if (!skipTemp) body.temperature = 0.2;
     const resp = await fetch(await getTextApiUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model, max_tokens: 1536, temperature: 0.2,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     });
     if (!resp.ok) throw new Error(`AI error: ${resp.status}`);
