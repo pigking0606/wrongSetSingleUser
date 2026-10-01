@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { globalTimer } from "@/lib/global-timer";
-import FullscreenMusic from "@/lib/fullscreen-music";
 
 const STUDY_PHOTOS = [
   "https://picsum.photos/id/1015/1920/1080",
@@ -333,9 +332,6 @@ export function StudyFullscreen({ taskTitle, segmentElapsed, totalElapsed, runni
           letterSpacing: ".05em",
         }}>换图</button>
       </div>
-
-      {/* 背景音乐（接入系统 SMTC 媒体控件） */}
-      <FullscreenMusic />
     </div>
   );
 }
